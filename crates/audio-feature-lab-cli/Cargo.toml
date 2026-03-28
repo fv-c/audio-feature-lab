@@ -1,0 +1,10 @@
+[package]
+name = "audio-feature-lab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+audio-feature-lab-config = { path = "../audio-feature-lab-config" }
+
