@@ -1,9 +1,11 @@
 [package]
-name = "audio-feature-lab-ffi"
+name = "afl-essentia-sys"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
-[dependencies]
-afl-essentia = { path = "../afl-essentia" }
+[features]
+default = []
+native-backend = []
+

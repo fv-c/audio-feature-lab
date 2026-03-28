@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "crates/afl-essentia",
+    "crates/afl-essentia-sys",
     "crates/audio-feature-lab-cli",
     "crates/audio-feature-lab-config",
     "crates/audio-feature-lab-core",
@@ -11,4 +13,3 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-

@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "afl-essentia"
+version = "0.1.0"
+dependencies = [
+ "afl-essentia-sys",
+]
+
+[[package]]
+name = "afl-essentia-sys"
+version = "0.1.0"
+
+[[package]]
 name = "audio-feature-lab"
 version = "0.1.0"
 dependencies = [
@@ -28,6 +39,9 @@ dependencies = [
 [[package]]
 name = "audio-feature-lab-ffi"
 version = "0.1.0"
+dependencies = [
+ "afl-essentia",
+]
 
 [[package]]
 name = "equivalent"
