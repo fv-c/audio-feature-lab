@@ -54,6 +54,7 @@ pub struct StatusBlock {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FeaturesBlock {
     pub spectral: BTreeMap<SpectralFeature, FeatureValue>,
     pub temporal: BTreeMap<TemporalFeature, f64>,
@@ -65,6 +66,7 @@ pub struct FeaturesBlock {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FrameLevelFeatures {
     pub spectral: BTreeMap<SpectralFeature, FrameFeatureValue>,
     pub temporal: BTreeMap<TemporalFeature, Vec<f64>>,
@@ -75,6 +77,7 @@ pub struct FrameLevelFeatures {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Aggregation {
     pub spectral: BTreeMap<SpectralFeature, AggregatedFeature>,
     pub temporal: BTreeMap<TemporalFeature, ScalarStatistics>,

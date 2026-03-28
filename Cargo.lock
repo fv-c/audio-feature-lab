@@ -32,6 +32,8 @@ dependencies = [
 name = "audio-feature-lab-core"
 version = "0.1.0"
 dependencies = [
+ "audio-feature-lab-config",
+ "audio-feature-lab-ffi",
  "serde",
  "serde_json",
 ]
