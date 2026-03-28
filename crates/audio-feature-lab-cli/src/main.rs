@@ -45,17 +45,15 @@ fn run() -> ExitCode {
 }
 
 fn validate_config(mut args: impl Iterator<Item = OsString>) -> ExitCode {
-    let Some(path) = args.next() else {
-        eprintln!("usage: audio-feature-lab validate-config <path>");
-        return ExitCode::from(2);
-    };
+    let path = args.next();
 
     if args.next().is_some() {
-        eprintln!("usage: audio-feature-lab validate-config <path>");
+        eprintln!("usage: audio-feature-lab validate-config [path]");
         return ExitCode::from(2);
     }
 
-    match LabConfig::from_path(PathBuf::from(path).as_path()) {
+    let path = path.as_ref().map(PathBuf::from);
+    match LabConfig::load(path.as_deref()) {
         Ok(config) => {
             println!("config is valid: profile={}", config.profile.as_str());
             ExitCode::SUCCESS
@@ -80,5 +78,5 @@ fn print_help(program: &str) {
     println!("  analyze          Reserved for a later phase");
     println!("  batch            Reserved for a later phase");
     println!("  scan             Reserved for a later phase");
-    println!("  validate-config  Validate a repository config file");
+    println!("  validate-config  Validate a config file or the default profile");
 }

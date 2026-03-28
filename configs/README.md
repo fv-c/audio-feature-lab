@@ -1,6 +1,9 @@
 # Configuration
 
-Phase 1 ships the repository-level profile layout only.
+Repository example configurations live here.
 
-Each profile file currently declares the requested profile name so the config loader can validate the scaffold end to end.
+The config crate embeds and validates:
 
+- `configs/minimal.toml`
+- `configs/default.toml`
+- `configs/research.toml`

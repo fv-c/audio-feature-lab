@@ -1,7 +1,10 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
@@ -19,6 +22,14 @@ impl Profile {
         }
     }
 
+    pub fn example(self) -> &'static str {
+        match self {
+            Self::Minimal => include_str!("../../../configs/minimal.toml"),
+            Self::Default => include_str!("../../../configs/default.toml"),
+            Self::Research => include_str!("../../../configs/research.toml"),
+        }
+    }
+
     fn parse(value: &str) -> Result<Self, ConfigError> {
         match value {
             "minimal" => Ok(Self::Minimal),
@@ -29,12 +40,294 @@ impl Profile {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FeatureFamily {
+    Spectral,
+    Temporal,
+    Rhythm,
+    Tonal,
+    Dynamics,
+    Metadata,
+}
+
+impl FeatureFamily {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Spectral => "spectral",
+            Self::Temporal => "temporal",
+            Self::Rhythm => "rhythm",
+            Self::Tonal => "tonal",
+            Self::Dynamics => "dynamics",
+            Self::Metadata => "metadata",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, ConfigError> {
+        match value {
+            "spectral" => Ok(Self::Spectral),
+            "temporal" => Ok(Self::Temporal),
+            "rhythm" => Ok(Self::Rhythm),
+            "tonal" => Ok(Self::Tonal),
+            "dynamics" => Ok(Self::Dynamics),
+            "metadata" => Ok(Self::Metadata),
+            _ => Err(ConfigError::UnknownFeatureFamily(value.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FeatureName {
+    Centroid,
+    Spread,
+    Skewness,
+    Kurtosis,
+    Rolloff,
+    Flux,
+    Flatness,
+    Crest,
+    Energy,
+    Entropy,
+    Complexity,
+    Contrast,
+    Hfc,
+    StrongPeak,
+    Dissonance,
+    Inharmonicity,
+    Mfcc,
+    BarkBands,
+    MelBands,
+    ErbBands,
+    Gfcc,
+    SpectralPeaks,
+    Zcr,
+    Rms,
+    Peak,
+    Envelope,
+    DynamicRange,
+    OnsetRate,
+    OnsetStrength,
+    Tempo,
+    BeatPeriod,
+    InterOnsetInterval,
+    Hpcp,
+    Chroma,
+    KeyStrength,
+    TuningFrequency,
+    Loudness,
+    LoudnessEbu,
+    DynamicComplexity,
+    Duration,
+    SilenceRatio,
+    ActiveRatio,
+}
+
+impl FeatureName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Centroid => "centroid",
+            Self::Spread => "spread",
+            Self::Skewness => "skewness",
+            Self::Kurtosis => "kurtosis",
+            Self::Rolloff => "rolloff",
+            Self::Flux => "flux",
+            Self::Flatness => "flatness",
+            Self::Crest => "crest",
+            Self::Energy => "energy",
+            Self::Entropy => "entropy",
+            Self::Complexity => "complexity",
+            Self::Contrast => "contrast",
+            Self::Hfc => "hfc",
+            Self::StrongPeak => "strong_peak",
+            Self::Dissonance => "dissonance",
+            Self::Inharmonicity => "inharmonicity",
+            Self::Mfcc => "mfcc",
+            Self::BarkBands => "bark_bands",
+            Self::MelBands => "mel_bands",
+            Self::ErbBands => "erb_bands",
+            Self::Gfcc => "gfcc",
+            Self::SpectralPeaks => "spectral_peaks",
+            Self::Zcr => "zcr",
+            Self::Rms => "rms",
+            Self::Peak => "peak",
+            Self::Envelope => "envelope",
+            Self::DynamicRange => "dynamic_range",
+            Self::OnsetRate => "onset_rate",
+            Self::OnsetStrength => "onset_strength",
+            Self::Tempo => "tempo",
+            Self::BeatPeriod => "beat_period",
+            Self::InterOnsetInterval => "inter_onset_interval",
+            Self::Hpcp => "hpcp",
+            Self::Chroma => "chroma",
+            Self::KeyStrength => "key_strength",
+            Self::TuningFrequency => "tuning_frequency",
+            Self::Loudness => "loudness",
+            Self::LoudnessEbu => "loudness_ebu",
+            Self::DynamicComplexity => "dynamic_complexity",
+            Self::Duration => "duration",
+            Self::SilenceRatio => "silence_ratio",
+            Self::ActiveRatio => "active_ratio",
+        }
+    }
+
+    pub fn family(self) -> FeatureFamily {
+        match self {
+            Self::Centroid
+            | Self::Spread
+            | Self::Skewness
+            | Self::Kurtosis
+            | Self::Rolloff
+            | Self::Flux
+            | Self::Flatness
+            | Self::Crest
+            | Self::Energy
+            | Self::Entropy
+            | Self::Complexity
+            | Self::Contrast
+            | Self::Hfc
+            | Self::StrongPeak
+            | Self::Dissonance
+            | Self::Inharmonicity
+            | Self::Mfcc
+            | Self::BarkBands
+            | Self::MelBands
+            | Self::ErbBands
+            | Self::Gfcc
+            | Self::SpectralPeaks => FeatureFamily::Spectral,
+            Self::Zcr | Self::Rms | Self::Peak | Self::Envelope | Self::DynamicRange => {
+                FeatureFamily::Temporal
+            }
+            Self::OnsetRate
+            | Self::OnsetStrength
+            | Self::Tempo
+            | Self::BeatPeriod
+            | Self::InterOnsetInterval => FeatureFamily::Rhythm,
+            Self::Hpcp | Self::Chroma | Self::KeyStrength | Self::TuningFrequency => {
+                FeatureFamily::Tonal
+            }
+            Self::Loudness | Self::LoudnessEbu | Self::DynamicComplexity => FeatureFamily::Dynamics,
+            Self::Duration | Self::SilenceRatio | Self::ActiveRatio => FeatureFamily::Metadata,
+        }
+    }
+
+    pub fn is_vector(self) -> bool {
+        matches!(
+            self,
+            Self::Mfcc
+                | Self::BarkBands
+                | Self::MelBands
+                | Self::ErbBands
+                | Self::Gfcc
+                | Self::SpectralPeaks
+                | Self::Hpcp
+                | Self::Chroma
+        )
+    }
+
+    fn parse(value: &str) -> Result<Self, ConfigError> {
+        match value {
+            "centroid" => Ok(Self::Centroid),
+            "spread" => Ok(Self::Spread),
+            "skewness" => Ok(Self::Skewness),
+            "kurtosis" => Ok(Self::Kurtosis),
+            "rolloff" => Ok(Self::Rolloff),
+            "flux" => Ok(Self::Flux),
+            "flatness" => Ok(Self::Flatness),
+            "crest" => Ok(Self::Crest),
+            "energy" => Ok(Self::Energy),
+            "entropy" => Ok(Self::Entropy),
+            "complexity" => Ok(Self::Complexity),
+            "contrast" => Ok(Self::Contrast),
+            "hfc" => Ok(Self::Hfc),
+            "strong_peak" => Ok(Self::StrongPeak),
+            "dissonance" => Ok(Self::Dissonance),
+            "inharmonicity" => Ok(Self::Inharmonicity),
+            "mfcc" => Ok(Self::Mfcc),
+            "bark_bands" => Ok(Self::BarkBands),
+            "mel_bands" => Ok(Self::MelBands),
+            "erb_bands" => Ok(Self::ErbBands),
+            "gfcc" => Ok(Self::Gfcc),
+            "spectral_peaks" => Ok(Self::SpectralPeaks),
+            "zcr" => Ok(Self::Zcr),
+            "rms" => Ok(Self::Rms),
+            "peak" => Ok(Self::Peak),
+            "envelope" => Ok(Self::Envelope),
+            "dynamic_range" => Ok(Self::DynamicRange),
+            "onset_rate" => Ok(Self::OnsetRate),
+            "onset_strength" => Ok(Self::OnsetStrength),
+            "tempo" => Ok(Self::Tempo),
+            "beat_period" => Ok(Self::BeatPeriod),
+            "inter_onset_interval" => Ok(Self::InterOnsetInterval),
+            "hpcp" => Ok(Self::Hpcp),
+            "chroma" => Ok(Self::Chroma),
+            "key_strength" => Ok(Self::KeyStrength),
+            "tuning_frequency" => Ok(Self::TuningFrequency),
+            "loudness" => Ok(Self::Loudness),
+            "loudness_ebu" => Ok(Self::LoudnessEbu),
+            "dynamic_complexity" => Ok(Self::DynamicComplexity),
+            "duration" => Ok(Self::Duration),
+            "silence_ratio" => Ok(Self::SilenceRatio),
+            "active_ratio" => Ok(Self::ActiveRatio),
+            _ => Err(ConfigError::UnknownFeature(value.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AggregationStatistic {
+    Mean,
+}
+
+impl AggregationStatistic {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mean => "mean",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, ConfigError> {
+        match value {
+            "mean" => Ok(Self::Mean),
+            _ => Err(ConfigError::UnknownAggregationStatistic(value.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeaturesConfig {
+    pub families: Vec<FeatureFamily>,
+    pub enabled: Vec<FeatureName>,
+    pub frame_level: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AggregationConfig {
+    pub statistics: Vec<AggregationStatistic>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabConfig {
     pub profile: Profile,
+    pub features: FeaturesConfig,
+    pub aggregation: AggregationConfig,
 }
 
 impl LabConfig {
+    pub fn load(path: Option<&Path>) -> Result<Self, ConfigError> {
+        match path {
+            Some(path) => Self::from_path(path),
+            None => Self::load_default(),
+        }
+    }
+
+    pub fn load_default() -> Result<Self, ConfigError> {
+        Self::from_profile(Profile::Default)
+    }
+
+    pub fn from_profile(profile: Profile) -> Result<Self, ConfigError> {
+        let raw = parse_raw(profile.example())?;
+        Self::validate_raw(raw, ResolveProfileDefaults::No)
+    }
+
     pub fn from_path(path: &Path) -> Result<Self, ConfigError> {
         let source = fs::read_to_string(path).map_err(|error| ConfigError::Io {
             path: path.to_path_buf(),
@@ -45,41 +338,266 @@ impl LabConfig {
     }
 
     pub fn from_str(source: &str) -> Result<Self, ConfigError> {
-        let mut profile = None;
+        let raw = parse_raw(source)?;
+        Self::validate_raw(raw, ResolveProfileDefaults::Yes)
+    }
 
-        for line in source.lines() {
-            let trimmed = line.trim();
-
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
+    fn validate_raw(
+        raw: RawLabConfig,
+        resolve_defaults: ResolveProfileDefaults,
+    ) -> Result<Self, ConfigError> {
+        let profile = Profile::parse(&raw.profile)?;
+        let base = match resolve_defaults {
+            ResolveProfileDefaults::Yes if raw.features.is_none() || raw.aggregation.is_none() => {
+                Some(Self::from_profile(profile)?)
             }
+            ResolveProfileDefaults::Yes | ResolveProfileDefaults::No => None,
+        };
 
-            let Some((key, raw_value)) = trimmed.split_once('=') else {
-                return Err(ConfigError::MalformedLine(trimmed.to_string()));
-            };
+        let features = match (raw.features, base.as_ref().map(|config| &config.features)) {
+            (Some(raw_features), _) => validate_features(raw_features, profile)?,
+            (None, Some(features)) => features.clone(),
+            (None, None) => return Err(ConfigError::MissingSection("features")),
+        };
 
-            let key = key.trim();
-            let value = raw_value.trim().trim_matches('"');
+        validate_profile_constraints(profile, &features)?;
 
-            if key == "profile" {
-                profile = Some(Profile::parse(value)?);
+        let aggregation = match (
+            raw.aggregation,
+            base.as_ref().map(|config| &config.aggregation),
+        ) {
+            (Some(raw_aggregation), _) => validate_aggregation(raw_aggregation)?,
+            (None, Some(aggregation)) => aggregation.clone(),
+            (None, None) => return Err(ConfigError::MissingSection("aggregation")),
+        };
+
+        Ok(Self {
+            profile,
+            features,
+            aggregation,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolveProfileDefaults {
+    Yes,
+    No,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLabConfig {
+    profile: String,
+    features: Option<RawFeaturesConfig>,
+    aggregation: Option<RawAggregationConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFeaturesConfig {
+    families: Vec<String>,
+    enabled: Vec<String>,
+    frame_level: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAggregationConfig {
+    statistics: Vec<String>,
+}
+
+fn parse_raw(source: &str) -> Result<RawLabConfig, ConfigError> {
+    toml::from_str(source).map_err(ConfigError::TomlParse)
+}
+
+fn validate_features(
+    raw: RawFeaturesConfig,
+    profile: Profile,
+) -> Result<FeaturesConfig, ConfigError> {
+    let families = parse_unique_values(
+        raw.families,
+        "features.families",
+        FeatureFamily::parse,
+        FeatureFamily::as_str,
+    )?;
+    let enabled = parse_unique_values(
+        raw.enabled,
+        "features.enabled",
+        FeatureName::parse,
+        FeatureName::as_str,
+    )?;
+
+    let family_set = families.iter().copied().collect::<BTreeSet<_>>();
+    for feature in &enabled {
+        let family = feature.family();
+        if !family_set.contains(&family) {
+            return Err(ConfigError::FeatureOutsideSelectedFamilies {
+                feature: feature.as_str().to_string(),
+                family: family.as_str().to_string(),
+            });
+        }
+    }
+
+    if profile != Profile::Research && enabled.contains(&FeatureName::SpectralPeaks) {
+        return Err(ConfigError::ProfileConstraint {
+            profile,
+            message: "spectral_peaks is only allowed in the research profile".to_string(),
+        });
+    }
+
+    Ok(FeaturesConfig {
+        families,
+        enabled,
+        frame_level: raw.frame_level.unwrap_or(false),
+    })
+}
+
+fn validate_aggregation(raw: RawAggregationConfig) -> Result<AggregationConfig, ConfigError> {
+    let statistics = parse_unique_values(
+        raw.statistics,
+        "aggregation.statistics",
+        AggregationStatistic::parse,
+        AggregationStatistic::as_str,
+    )?;
+
+    if statistics.is_empty() {
+        return Err(ConfigError::EmptySelection("aggregation.statistics"));
+    }
+
+    Ok(AggregationConfig { statistics })
+}
+
+fn validate_profile_constraints(
+    profile: Profile,
+    features: &FeaturesConfig,
+) -> Result<(), ConfigError> {
+    match profile {
+        Profile::Minimal => {
+            if let Some(feature) = features.enabled.iter().find(|feature| feature.is_vector()) {
+                return Err(ConfigError::ProfileConstraint {
+                    profile,
+                    message: format!(
+                        "minimal profile cannot enable vector feature `{}`",
+                        feature.as_str()
+                    ),
+                });
             }
         }
+        Profile::Default => {
+            if !features.enabled.contains(&FeatureName::Mfcc) {
+                return Err(ConfigError::ProfileConstraint {
+                    profile,
+                    message: "default profile must include `mfcc`".to_string(),
+                });
+            }
 
-        let profile = profile.ok_or(ConfigError::MissingProfile)?;
-        Ok(Self { profile })
+            for family in [
+                FeatureFamily::Spectral,
+                FeatureFamily::Rhythm,
+                FeatureFamily::Tonal,
+            ] {
+                if !features.families.contains(&family) {
+                    return Err(ConfigError::ProfileConstraint {
+                        profile,
+                        message: format!(
+                            "default profile must include the `{}` feature family",
+                            family.as_str()
+                        ),
+                    });
+                }
+            }
+        }
+        Profile::Research => {
+            let has_band_feature = features.enabled.iter().any(|feature| {
+                matches!(
+                    feature,
+                    FeatureName::BarkBands | FeatureName::MelBands | FeatureName::ErbBands
+                )
+            });
+
+            if !has_band_feature {
+                return Err(ConfigError::ProfileConstraint {
+                    profile,
+                    message: "research profile must include at least one band-based feature".into(),
+                });
+            }
+
+            for feature in [FeatureName::Gfcc, FeatureName::SpectralPeaks] {
+                if !features.enabled.contains(&feature) {
+                    return Err(ConfigError::ProfileConstraint {
+                        profile,
+                        message: format!("research profile must include `{}`", feature.as_str()),
+                    });
+                }
+            }
+        }
     }
+
+    Ok(())
+}
+
+fn parse_unique_values<T, ParseFn, NameFn>(
+    values: Vec<String>,
+    field: &'static str,
+    parse: ParseFn,
+    name: NameFn,
+) -> Result<Vec<T>, ConfigError>
+where
+    T: Copy + Ord,
+    ParseFn: Fn(&str) -> Result<T, ConfigError>,
+    NameFn: Fn(T) -> &'static str,
+{
+    if values.is_empty() {
+        return Err(ConfigError::EmptySelection(field));
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut parsed = Vec::with_capacity(values.len());
+
+    for value in values {
+        let trimmed = value.trim();
+        let parsed_value = parse(trimmed)?;
+        let canonical_name = name(parsed_value);
+
+        if !seen.insert(canonical_name) {
+            return Err(ConfigError::DuplicateValue {
+                field,
+                value: canonical_name.to_string(),
+            });
+        }
+
+        parsed.push(parsed_value);
+    }
+
+    Ok(parsed)
 }
 
 #[derive(Debug)]
 pub enum ConfigError {
     Io {
-        path: std::path::PathBuf,
+        path: PathBuf,
         error: std::io::Error,
     },
-    MalformedLine(String),
-    MissingProfile,
+    TomlParse(toml::de::Error),
+    MissingSection(&'static str),
+    EmptySelection(&'static str),
+    DuplicateValue {
+        field: &'static str,
+        value: String,
+    },
     UnknownProfile(String),
+    UnknownFeatureFamily(String),
+    UnknownFeature(String),
+    UnknownAggregationStatistic(String),
+    FeatureOutsideSelectedFamilies {
+        feature: String,
+        family: String,
+    },
+    ProfileConstraint {
+        profile: Profile,
+        message: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -88,11 +606,363 @@ impl fmt::Display for ConfigError {
             Self::Io { path, error } => {
                 write!(f, "failed to read {}: {error}", path.display())
             }
-            Self::MalformedLine(line) => write!(f, "malformed config line: {line}"),
-            Self::MissingProfile => write!(f, "missing `profile` setting"),
+            Self::TomlParse(error) => write!(f, "invalid TOML configuration: {error}"),
+            Self::MissingSection(section) => write!(f, "missing required section `{section}`"),
+            Self::EmptySelection(field) => write!(f, "`{field}` cannot be empty"),
+            Self::DuplicateValue { field, value } => {
+                write!(f, "duplicate value `{value}` in `{field}`")
+            }
             Self::UnknownProfile(profile) => write!(f, "unknown profile `{profile}`"),
+            Self::UnknownFeatureFamily(family) => {
+                write!(f, "unknown feature family `{family}`")
+            }
+            Self::UnknownFeature(feature) => write!(f, "unknown feature `{feature}`"),
+            Self::UnknownAggregationStatistic(statistic) => {
+                write!(f, "unknown aggregation statistic `{statistic}`")
+            }
+            Self::FeatureOutsideSelectedFamilies { feature, family } => write!(
+                f,
+                "feature `{feature}` requires the `{family}` family to be enabled"
+            ),
+            Self::ProfileConstraint { profile, message } => {
+                write!(f, "profile `{}` is invalid: {message}", profile.as_str())
+            }
         }
     }
 }
 
-impl Error for ConfigError {}
+impl Error for ConfigError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io { error, .. } => Some(error),
+            Self::TomlParse(error) => Some(error),
+            Self::MissingSection(_)
+            | Self::EmptySelection(_)
+            | Self::DuplicateValue { .. }
+            | Self::UnknownProfile(_)
+            | Self::UnknownFeatureFamily(_)
+            | Self::UnknownFeature(_)
+            | Self::UnknownAggregationStatistic(_)
+            | Self::FeatureOutsideSelectedFamilies { .. }
+            | Self::ProfileConstraint { .. } => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AggregationStatistic, ConfigError, FeatureFamily, FeatureName, LabConfig, Profile,
+    };
+
+    #[test]
+    fn loads_default_config_when_no_path_is_provided() {
+        let config = LabConfig::load(None).expect("default config should load");
+
+        assert_eq!(config.profile, Profile::Default);
+        assert!(config.features.enabled.contains(&FeatureName::Mfcc));
+        assert_eq!(
+            config.aggregation.statistics,
+            vec![AggregationStatistic::Mean]
+        );
+        assert!(!config.features.frame_level);
+    }
+
+    #[test]
+    fn loads_each_profile_example() {
+        for profile in [Profile::Minimal, Profile::Default, Profile::Research] {
+            let config = LabConfig::from_profile(profile).expect("profile example should load");
+            assert_eq!(config.profile, profile);
+            assert!(!config.features.families.is_empty());
+            assert!(!config.features.enabled.is_empty());
+            assert_eq!(
+                config.aggregation.statistics,
+                vec![AggregationStatistic::Mean]
+            );
+        }
+    }
+
+    #[test]
+    fn custom_config_can_inherit_profile_defaults() {
+        let config = LabConfig::from_str("profile = \"minimal\"").expect("minimal profile");
+
+        assert_eq!(config.profile, Profile::Minimal);
+        assert!(
+            !config
+                .features
+                .enabled
+                .iter()
+                .any(|feature| feature.is_vector())
+        );
+        assert_eq!(
+            config.aggregation.statistics,
+            vec![AggregationStatistic::Mean]
+        );
+    }
+
+    #[test]
+    fn custom_feature_section_uses_default_aggregation_section() {
+        let config = LabConfig::from_str(
+            r#"
+profile = "default"
+
+[features]
+families = ["spectral", "rhythm", "tonal"]
+enabled = ["mfcc", "tempo", "hpcp"]
+"#,
+        )
+        .expect("default profile config should load");
+
+        assert_eq!(config.profile, Profile::Default);
+        assert_eq!(
+            config.features.families,
+            vec![
+                FeatureFamily::Spectral,
+                FeatureFamily::Rhythm,
+                FeatureFamily::Tonal,
+            ]
+        );
+        assert_eq!(
+            config.aggregation.statistics,
+            vec![AggregationStatistic::Mean]
+        );
+        assert!(!config.features.frame_level);
+    }
+
+    #[test]
+    fn rejects_unknown_profile() {
+        let error = LabConfig::from_str("profile = \"fast\"").expect_err("invalid profile");
+
+        assert_eq!(error.to_string(), "unknown profile `fast`");
+    }
+
+    #[test]
+    fn rejects_unknown_feature_family() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "pitch"]
+enabled = ["centroid"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("invalid family");
+
+        assert_eq!(error.to_string(), "unknown feature family `pitch`");
+    }
+
+    #[test]
+    fn rejects_unknown_feature() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral"]
+enabled = ["brightness"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("invalid feature");
+
+        assert_eq!(error.to_string(), "unknown feature `brightness`");
+    }
+
+    #[test]
+    fn rejects_feature_outside_selected_family() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "default"
+
+[features]
+families = ["spectral", "rhythm", "tonal"]
+enabled = ["mfcc", "tempo", "loudness"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("feature family mismatch");
+
+        assert_eq!(
+            error.to_string(),
+            "feature `loudness` requires the `dynamics` family to be enabled"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_statistics() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean", "mean"]
+"#,
+        )
+        .expect_err("duplicate statistic");
+
+        assert_eq!(
+            error.to_string(),
+            "duplicate value `mean` in `aggregation.statistics`"
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_aggregation_statistic() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["median"]
+"#,
+        )
+        .expect_err("unsupported statistic");
+
+        assert_eq!(error.to_string(), "unknown aggregation statistic `median`");
+    }
+
+    #[test]
+    fn rejects_vector_features_in_minimal_profile() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["mfcc", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("minimal profile should reject vectors");
+
+        assert_eq!(
+            error.to_string(),
+            "profile `minimal` is invalid: minimal profile cannot enable vector feature `mfcc`"
+        );
+    }
+
+    #[test]
+    fn rejects_default_profile_without_mfcc() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "default"
+
+[features]
+families = ["spectral", "rhythm", "tonal"]
+enabled = ["tempo", "hpcp"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("default profile should require mfcc");
+
+        assert_eq!(
+            error.to_string(),
+            "profile `default` is invalid: default profile must include `mfcc`"
+        );
+    }
+
+    #[test]
+    fn rejects_spectral_peaks_outside_research() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "default"
+
+[features]
+families = ["spectral", "rhythm", "tonal"]
+enabled = ["mfcc", "tempo", "hpcp", "spectral_peaks"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("spectral_peaks should be restricted");
+
+        assert_eq!(
+            error.to_string(),
+            "profile `default` is invalid: spectral_peaks is only allowed in the research profile"
+        );
+    }
+
+    #[test]
+    fn rejects_research_profile_without_required_extended_features() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "research"
+
+[features]
+families = ["spectral", "temporal", "rhythm", "tonal", "dynamics", "metadata"]
+enabled = ["mfcc", "tempo", "hpcp", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("research profile should require extended features");
+
+        assert_eq!(
+            error.to_string(),
+            "profile `research` is invalid: research profile must include at least one band-based feature"
+        );
+    }
+
+    #[test]
+    fn frame_level_defaults_to_false_when_omitted() {
+        let config = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect("config should load");
+
+        assert!(!config.features.frame_level);
+    }
+
+    #[test]
+    fn toml_errors_are_contextual() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = "spectral"
+enabled = ["centroid"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("invalid TOML shape");
+
+        match error {
+            ConfigError::TomlParse(_) => {}
+            other => panic!("expected TOML parse error, got {other}"),
+        }
+    }
+}

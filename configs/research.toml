@@ -1,0 +1,38 @@
+profile = "research"
+
+[features]
+families = ["spectral", "rhythm", "tonal", "dynamics", "metadata"]
+enabled = [
+  "centroid",
+  "spread",
+  "rolloff",
+  "flux",
+  "flatness",
+  "entropy",
+  "contrast",
+  "hfc",
+  "dissonance",
+  "inharmonicity",
+  "mfcc",
+  "bark_bands",
+  "mel_bands",
+  "erb_bands",
+  "gfcc",
+  "spectral_peaks",
+  "tempo",
+  "beat_period",
+  "onset_strength",
+  "hpcp",
+  "chroma",
+  "key_strength",
+  "tuning_frequency",
+  "loudness",
+  "dynamic_complexity",
+  "duration",
+  "silence_ratio",
+  "active_ratio",
+]
+frame_level = false
+
+[aggregation]
+statistics = ["mean"]

@@ -1,0 +1,20 @@
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = [
+  "centroid",
+  "rolloff",
+  "flux",
+  "flatness",
+  "zcr",
+  "rms",
+  "loudness",
+  "duration",
+  "silence_ratio",
+  "active_ratio",
+]
+frame_level = false
+
+[aggregation]
+statistics = ["mean"]

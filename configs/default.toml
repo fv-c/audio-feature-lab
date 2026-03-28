@@ -1,0 +1,30 @@
+profile = "default"
+
+[features]
+families = ["spectral", "rhythm", "tonal", "dynamics", "metadata"]
+enabled = [
+  "centroid",
+  "spread",
+  "rolloff",
+  "flux",
+  "flatness",
+  "entropy",
+  "hfc",
+  "mfcc",
+  "tempo",
+  "beat_period",
+  "onset_strength",
+  "hpcp",
+  "chroma",
+  "key_strength",
+  "tuning_frequency",
+  "loudness",
+  "dynamic_complexity",
+  "duration",
+  "silence_ratio",
+  "active_ratio",
+]
+frame_level = false
+
+[aggregation]
+statistics = ["mean"]
