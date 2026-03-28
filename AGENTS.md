@@ -25,3 +25,5 @@ Follow docs/agent/execution-plan.md
 - Never accumulate full dataset in memory
 - Prefer streaming design everywhere
 - Keep Rust/native boundary minimal and measurable
+- Before changing code, read AGENTS.md and the referenced docs. Then implement only the requested phase. 
+- At the end modify always the README.md file.
