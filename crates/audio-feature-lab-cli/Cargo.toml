@@ -7,4 +7,6 @@ publish = false
 
 [dependencies]
 audio-feature-lab-config = { path = "../audio-feature-lab-config" }
-
+audio-feature-lab-core = { path = "../audio-feature-lab-core" }
+audio-feature-lab-ffi = { path = "../audio-feature-lab-ffi" }
+serde_json = "1.0.145"

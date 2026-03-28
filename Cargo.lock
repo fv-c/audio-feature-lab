@@ -18,6 +18,9 @@ name = "audio-feature-lab"
 version = "0.1.0"
 dependencies = [
  "audio-feature-lab-config",
+ "audio-feature-lab-core",
+ "audio-feature-lab-ffi",
+ "serde_json",
 ]
 
 [[package]]
