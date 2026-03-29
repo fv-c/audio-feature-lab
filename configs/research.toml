@@ -4,7 +4,7 @@ profile = "research"
 name = "essentia"
 
 [features]
-families = ["spectral", "rhythm", "tonal", "dynamics", "metadata"]
+families = ["spectral", "temporal", "rhythm", "tonal", "dynamics", "metadata"]
 enabled = [
   "centroid",
   "spread",
@@ -22,6 +22,11 @@ enabled = [
   "erb_bands",
   "gfcc",
   "spectral_peaks",
+  "zcr",
+  "rms",
+  "peak",
+  "envelope",
+  "dynamic_range",
   "tempo",
   "beat_period",
   "onset_strength",

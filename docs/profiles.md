@@ -65,7 +65,7 @@ Purpose:
 
 Current shipped config:
 
-- enables spectral, rhythm, tonal, dynamics, and metadata families
+- enables spectral, temporal, rhythm, tonal, dynamics, and metadata families
 - enabled features:
   - `centroid`
   - `spread`
@@ -75,6 +75,10 @@ Current shipped config:
   - `entropy`
   - `hfc`
   - `mfcc`
+  - `zcr`
+  - `rms`
+  - `peak`
+  - `dynamic_range`
   - `tempo`
   - `beat_period`
   - `onset_strength`
@@ -99,6 +103,7 @@ Purpose:
 Current shipped config:
 
 - extends the requested spectral set with band features, `gfcc`, and `spectral_peaks`
+- enables spectral, temporal, rhythm, tonal, dynamics, and metadata families
 - enabled features:
   - `centroid`
   - `spread`
@@ -116,6 +121,11 @@ Current shipped config:
   - `erb_bands`
   - `gfcc`
   - `spectral_peaks`
+  - `zcr`
+  - `rms`
+  - `peak`
+  - `envelope`
+  - `dynamic_range`
   - `tempo`
   - `beat_period`
   - `onset_strength`

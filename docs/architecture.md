@@ -72,6 +72,12 @@ The Rust pipeline owns the outer record shape. The native backend currently only
 
 This keeps the FFI small while preserving a stable top-level JSONL schema in Rust.
 
+Current semantic split:
+
+- `features` contains the available file-level descriptor values for the analyzed file
+- `aggregation` contains statistic-labeled exports of those descriptors
+- with the current Essentia backend, `mean` is the only supported aggregation statistic, so `features` and `aggregation.*.*.mean` often carry the same underlying numeric content
+
 ## Failure Model
 
 The pipeline tries to preserve one record per requested file, even when analysis fails:

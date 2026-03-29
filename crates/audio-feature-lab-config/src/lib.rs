@@ -850,6 +850,30 @@ mod tests {
     }
 
     #[test]
+    fn shipped_default_profile_includes_temporal_family_and_features() {
+        let config =
+            LabConfig::from_profile(Profile::Default).expect("default profile should load");
+
+        assert!(config.features.families.contains(&FeatureFamily::Temporal));
+        assert!(config.features.enabled.contains(&FeatureName::Zcr));
+        assert!(config.features.enabled.contains(&FeatureName::Rms));
+        assert!(config.features.enabled.contains(&FeatureName::DynamicRange));
+    }
+
+    #[test]
+    fn shipped_research_profile_includes_temporal_family_and_features() {
+        let config =
+            LabConfig::from_profile(Profile::Research).expect("research profile should load");
+
+        assert!(config.features.families.contains(&FeatureFamily::Temporal));
+        assert!(config.features.enabled.contains(&FeatureName::Zcr));
+        assert!(config.features.enabled.contains(&FeatureName::Rms));
+        assert!(config.features.enabled.contains(&FeatureName::Peak));
+        assert!(config.features.enabled.contains(&FeatureName::Envelope));
+        assert!(config.features.enabled.contains(&FeatureName::DynamicRange));
+    }
+
+    #[test]
     fn custom_config_can_inherit_profile_defaults() {
         let config = LabConfig::parse_str("profile = \"minimal\"").expect("minimal profile");
 

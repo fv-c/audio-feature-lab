@@ -56,6 +56,7 @@ The current C++ wrapper is intentionally conservative:
 
 - one native call per file
 - `mean` aggregation only
+- available file-level descriptor values are returned in `features.<family>`
 - frame-level output only for descriptors the backend can actually emit
 - unsupported requested descriptors are omitted and reported through warnings
 - backend-side analysis failures are returned as structured failures rather than being hidden

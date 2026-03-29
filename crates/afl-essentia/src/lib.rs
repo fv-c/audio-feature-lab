@@ -175,7 +175,7 @@ mod tests {
     fn analyzes_real_fixture_with_partial_or_better_status() {
         let fixture =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
-        let config = r#"{"profile":"default","features":{"families":["spectral","rhythm","tonal","dynamics","metadata"],"enabled":["centroid","spread","rolloff","flux","flatness","entropy","hfc","mfcc","tempo","beat_period","onset_strength","hpcp","chroma","key_strength","tuning_frequency","loudness","dynamic_complexity","duration","silence_ratio","active_ratio"],"frame_level":false},"aggregation":{"statistics":["mean"]}}"#;
+        let config = r#"{"profile":"default","features":{"families":["spectral","temporal","rhythm","tonal","dynamics","metadata"],"enabled":["centroid","spread","rolloff","flux","flatness","entropy","hfc","mfcc","zcr","rms","peak","dynamic_range","tempo","beat_period","onset_strength","hpcp","chroma","key_strength","tuning_frequency","loudness","dynamic_complexity","duration","silence_ratio","active_ratio"],"frame_level":false},"aggregation":{"statistics":["mean"]}}"#;
 
         let response =
             analyze_file(&fixture, config).expect("native backend should analyze fixture");
@@ -183,6 +183,9 @@ mod tests {
             serde_json::from_str(&response).expect("backend response must be valid JSON");
 
         assert_eq!(payload["status"]["success"], serde_json::Value::Bool(true));
+        assert!(payload["features"]["spectral"]["centroid"].is_number());
+        assert!(payload["features"]["spectral"]["mfcc"].is_array());
+        assert!(payload["features"]["temporal"]["zcr"].is_number());
         assert!(payload["aggregation"]["spectral"]["centroid"]["mean"].is_number());
         assert!(payload["aggregation"]["tonal"]["hpcp"]["mean"].is_array());
     }

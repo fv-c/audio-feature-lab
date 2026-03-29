@@ -142,6 +142,7 @@ Important output rules:
 
 - aggregation remains hierarchical as `aggregation.<family>.<feature>.<statistic>`
 - vector-valued statistics remain arrays
+- `features.<family>` now carries the available file-level descriptor values for the current file
 - `features.frame_level` is always present
 - when frame-level extraction is disabled, `features.frame_level` is `null`
 - unsupported descriptors are omitted instead of being fabricated

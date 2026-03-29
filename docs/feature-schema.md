@@ -108,6 +108,7 @@ Representative shape:
 `features`
 
 - family maps for `spectral`, `temporal`, `rhythm`, `tonal`, `dynamics`, `metadata`
+- these maps contain the available file-level descriptor values for the current file
 - `frame_level`
 - `frame_level` is always present and is `null` when disabled
 
@@ -117,6 +118,7 @@ Representative shape:
 - vector-valued statistics remain arrays
 - the record model supports the full allowed statistic set
 - the current native Essentia backend emits `mean` only
+- with the current backend, `aggregation.*.*.mean` often mirrors the corresponding `features.<family>.<feature>` value
 
 `provenance`
 
