@@ -30,3 +30,4 @@ duration, silence_ratio, active_ratio
 - no aliases
 - no implicit transformations
 - unsupported features must be omitted
+- shipped configs, CLI help, and user-facing docs must stay within the currently implemented public backend capability; broader vocabulary remains target-only until implemented

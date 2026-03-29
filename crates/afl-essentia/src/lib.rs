@@ -175,7 +175,7 @@ mod tests {
     fn analyzes_real_fixture_with_partial_or_better_status() {
         let fixture =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
-        let config = r#"{"profile":"default","features":{"families":["spectral","temporal","rhythm","tonal","dynamics","metadata"],"enabled":["centroid","spread","rolloff","flux","flatness","entropy","hfc","mfcc","zcr","rms","peak","dynamic_range","tempo","beat_period","onset_strength","hpcp","chroma","key_strength","tuning_frequency","loudness","dynamic_complexity","duration","silence_ratio","active_ratio"],"frame_level":false},"aggregation":{"statistics":["mean"]}}"#;
+        let config = r#"{"profile":"default","features":{"families":["spectral","temporal","rhythm","tonal","dynamics","metadata"],"enabled":["centroid","spread","skewness","kurtosis","rolloff","flux","energy","entropy","complexity","hfc","strong_peak","dissonance","mfcc","zcr","rms","dynamic_range","onset_rate","tempo","beat_period","hpcp","chroma","key_strength","tuning_frequency","loudness","dynamic_complexity","duration","silence_ratio","active_ratio"],"frame_level":false},"aggregation":{"statistics":["mean"]}}"#;
 
         let response =
             analyze_file(&fixture, config).expect("native backend should analyze fixture");

@@ -4,6 +4,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use audio_feature_lab_config::{BackendName, LabConfig};
 use serde::Deserialize;
@@ -15,6 +16,10 @@ use crate::domain::{
 };
 use crate::storage::{RecordSink, StorageError};
 use crate::walker::{FileIdentity, WalkError, WalkedFile, Walker};
+
+const SCHEMA_NAME: &str = "audio-feature-lab-record";
+const SCHEMA_VERSION: &str = "1.0.0";
+const TOOL_NAME: &str = "audio-feature-lab";
 
 #[derive(Debug)]
 pub struct Pipeline<B = NativeBackend> {
@@ -534,7 +539,16 @@ fn serialize_backend_config(config: &LabConfig) -> Result<String, PipelineError>
 }
 
 fn build_schema_block() -> FeatureSchema {
-    FeatureSchema::default()
+    let mut fields = OrderedJsonObject::new();
+    fields.insert(
+        "name".to_string(),
+        JsonValue::String(SCHEMA_NAME.to_string()),
+    );
+    fields.insert(
+        "version".to_string(),
+        JsonValue::String(SCHEMA_VERSION.to_string()),
+    );
+    FeatureSchema { fields }
 }
 
 fn build_file_block(
@@ -548,10 +562,25 @@ fn build_file_block(
         JsonValue::String(path.to_string_lossy().into_owned()),
     );
     fields.insert(
+        "canonical_path".to_string(),
+        path.canonicalize()
+            .ok()
+            .map(|canonical_path| JsonValue::String(canonical_path.to_string_lossy().into_owned()))
+            .unwrap_or(JsonValue::Null),
+    );
+    fields.insert(
         "relative_path".to_string(),
         relative_path
             .map(|path| JsonValue::String(path.to_string_lossy().into_owned()))
             .unwrap_or(JsonValue::Null),
+    );
+    fields.insert(
+        "size_bytes".to_string(),
+        json!(identity.baseline.size_bytes),
+    );
+    fields.insert(
+        "modified_timestamp".to_string(),
+        json!(identity.baseline.modified_unix_nanos),
     );
     fields.insert(
         "identity".to_string(),
@@ -565,6 +594,10 @@ fn build_file_block(
 
 fn build_analysis_block(config: &LabConfig) -> AnalysisBlock {
     let mut fields = OrderedJsonObject::new();
+    fields.insert(
+        "timestamp".to_string(),
+        json!(current_unix_timestamp_millis()),
+    );
     fields.insert(
         "backend".to_string(),
         JsonValue::String(config.backend.name.as_str().to_string()),
@@ -618,6 +651,19 @@ fn build_provenance_block(
     backend_version: Option<&str>,
 ) -> ProvenanceBlock {
     let mut fields = OrderedJsonObject::new();
+    fields.insert("tool".to_string(), JsonValue::String(TOOL_NAME.to_string()));
+    fields.insert(
+        "tool_version".to_string(),
+        JsonValue::String(env!("CARGO_PKG_VERSION").to_string()),
+    );
+    fields.insert(
+        "schema_name".to_string(),
+        JsonValue::String(SCHEMA_NAME.to_string()),
+    );
+    fields.insert(
+        "schema_version".to_string(),
+        JsonValue::String(SCHEMA_VERSION.to_string()),
+    );
     fields.insert(
         "backend".to_string(),
         JsonValue::String(backend_name.as_str().to_string()),
@@ -633,6 +679,13 @@ fn build_provenance_block(
             .unwrap_or(JsonValue::Null),
     );
     ProvenanceBlock { fields }
+}
+
+fn current_unix_timestamp_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[cfg(test)]
@@ -700,12 +753,34 @@ mod tests {
             record.file.fields["path"],
             json!(path.to_string_lossy().to_string())
         );
+        assert_eq!(record.file.fields["size_bytes"], json!(5));
+        assert!(record.file.fields["canonical_path"].is_string());
+        assert!(record.file.fields["modified_timestamp"].is_number());
+        assert_eq!(record.schema.fields["name"], json!(super::SCHEMA_NAME));
+        assert_eq!(
+            record.schema.fields["version"],
+            json!(super::SCHEMA_VERSION)
+        );
         assert_eq!(record.analysis.fields["backend"], json!("essentia"));
         assert_eq!(record.analysis.fields["profile"], json!("default"));
+        assert!(record.analysis.fields["timestamp"].is_number());
+        assert_eq!(record.provenance.fields["tool"], json!(super::TOOL_NAME));
+        assert_eq!(
+            record.provenance.fields["tool_version"],
+            json!(env!("CARGO_PKG_VERSION"))
+        );
         assert_eq!(record.provenance.fields["backend"], json!("essentia"));
         assert_eq!(
             record.provenance.fields["backend_version"],
             json!("essentia-test")
+        );
+        assert_eq!(
+            record.provenance.fields["schema_name"],
+            json!(super::SCHEMA_NAME)
+        );
+        assert_eq!(
+            record.provenance.fields["schema_version"],
+            json!(super::SCHEMA_VERSION)
         );
         assert_eq!(record.status.fields["code"], json!("ok"));
         assert_eq!(record.audio.fields["sample_rate"], json!(44100));

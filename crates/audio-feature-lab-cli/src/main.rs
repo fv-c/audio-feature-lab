@@ -450,6 +450,16 @@ fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
             .iter()
             .map(|feature| feature.as_str())
             .collect::<Vec<_>>();
+        let frame_level_features = backend
+            .declared_frame_level_features()
+            .iter()
+            .map(|feature| feature.as_str())
+            .collect::<Vec<_>>();
+        let supported_statistics = backend
+            .declared_exact_aggregation_statistics()
+            .iter()
+            .map(|statistic| statistic.as_str())
+            .collect::<Vec<_>>();
         let _ = writeln!(stdout, "backend: {}", backend.as_str());
         let _ = writeln!(
             stdout,
@@ -467,10 +477,20 @@ fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
             let _ = writeln!(stdout, "detail: {detail}");
         }
         if !declared_exact.is_empty() {
+            let _ = writeln!(stdout, "supported_features: {}", declared_exact.join(", "));
+        }
+        if !frame_level_features.is_empty() {
             let _ = writeln!(
                 stdout,
-                "declared_exact_features: {}",
-                declared_exact.join(", ")
+                "frame_level_features: {}",
+                frame_level_features.join(", ")
+            );
+        }
+        if !supported_statistics.is_empty() {
+            let _ = writeln!(
+                stdout,
+                "supported_aggregation_statistics: {}",
+                supported_statistics.join(", ")
             );
         }
         let _ = writeln!(stdout);
@@ -479,7 +499,87 @@ fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
 }
 
 fn handle_schema<WOut: Write, WErr: Write>(stdout: &mut WOut, stderr: &mut WErr) -> u8 {
-    match serde_json::to_string_pretty(&AnalysisRecord::default()) {
+    let example = serde_json::json!({
+        "schema": {
+            "name": "audio-feature-lab-record",
+            "version": "1.0.0",
+        },
+        "file": {
+            "path": "/path/to/audio.wav",
+            "canonical_path": "/path/to/audio.wav",
+            "relative_path": "audio.wav",
+            "size_bytes": 0,
+            "modified_timestamp": 0,
+            "identity": {
+                "modified_unix_nanos": 0,
+                "size_bytes": 0
+            }
+        },
+        "audio": {
+            "sample_rate": 44100,
+            "channels": 2,
+            "duration_seconds": 0.0
+        },
+        "analysis": {
+            "timestamp": 0,
+            "backend": "essentia",
+            "profile": "default",
+            "frame_level": false,
+            "requested_families": ["spectral", "temporal"],
+            "requested_features": ["centroid", "mfcc", "zcr"],
+            "aggregation_statistics": ["mean"]
+        },
+        "features": {
+            "spectral": {
+                "centroid": 0.0,
+                "mfcc": [0.0, 0.0]
+            },
+            "temporal": {
+                "zcr": 0.0
+            },
+            "rhythm": {},
+            "tonal": {},
+            "dynamics": {},
+            "metadata": {},
+            "frame_level": null
+        },
+        "aggregation": {
+            "spectral": {
+                "centroid": {
+                    "mean": 0.0
+                },
+                "mfcc": {
+                    "mean": [0.0, 0.0]
+                }
+            },
+            "temporal": {
+                "zcr": {
+                    "mean": 0.0
+                }
+            },
+            "rhythm": {},
+            "tonal": {},
+            "dynamics": {},
+            "metadata": {}
+        },
+        "provenance": {
+            "tool": "audio-feature-lab",
+            "tool_version": env!("CARGO_PKG_VERSION"),
+            "schema_name": "audio-feature-lab-record",
+            "schema_version": "1.0.0",
+            "backend": "essentia",
+            "boundary": "json_string",
+            "backend_version": "..."
+        },
+        "status": {
+            "code": "ok",
+            "success": true,
+            "warnings": [],
+            "errors": []
+        }
+    });
+
+    match serde_json::to_string_pretty(&example) {
         Ok(schema) => {
             let _ = writeln!(stdout, "{schema}");
             let _ = writeln!(
@@ -534,21 +634,21 @@ fn handle_validate_config<WOut: Write, WErr: Write>(
 fn handle_profiles<WOut: Write>(stdout: &mut WOut) -> u8 {
     let _ = writeln!(
         stdout,
-        "minimal  fastest; core descriptors only; no vector features"
+        "minimal  fastest shipped profile; scalar baseline on current Essentia coverage"
     );
     let _ = writeln!(
         stdout,
-        "default  balanced; includes mfcc; richer spectral, tonal, and rhythm"
+        "default  balanced shipped profile; supported spectral, temporal, rhythm, tonal, and dynamics"
     );
     let _ = writeln!(
         stdout,
-        "research extended; band-based + gfcc + spectral_peaks; higher cost"
+        "research heaviest shipped profile; adds bark/mel/erb bands, gfcc, and loudness_ebu"
     );
     let _ = writeln!(stdout);
     let _ = writeln!(stdout, "frame-level extraction is disabled by default");
     let _ = writeln!(
         stdout,
-        "spectral_peaks is only valid in the research profile"
+        "shipped profiles are constrained to descriptors the current Essentia wrapper maps exactly"
     );
     0
 }
@@ -642,6 +742,10 @@ fn write_help<W: Write>(stdout: &mut W, program: &str) -> io::Result<()> {
     writeln!(stdout, "  - frame-level extraction is disabled by default")?;
     writeln!(
         stdout,
+        "  - `backend-info` prints the currently supported descriptor and aggregation surface"
+    )?;
+    writeln!(
+        stdout,
         "  - batch uses bounded workers from `[performance].workers`, clamped to available CPUs"
     )?;
     writeln!(
@@ -650,7 +754,7 @@ fn write_help<W: Write>(stdout: &mut W, program: &str) -> io::Result<()> {
     )?;
     writeln!(
         stdout,
-        "  - `minimal` forbids vector features; `research` is required for `spectral_peaks`"
+        "  - shipped profiles only request descriptors supported by the current backend"
     )?;
     Ok(())
 }
@@ -1051,6 +1155,7 @@ mod tests {
         assert_eq!(code, 0);
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("\"schema\""));
+        assert!(output.contains("\"audio-feature-lab-record\""));
         assert!(output.contains("\"aggregation\""));
         assert!(String::from_utf8(stderr).unwrap().contains("frame_level"));
     }
@@ -1203,8 +1308,13 @@ mod tests {
 
         assert_eq!(code, 0);
         let output = String::from_utf8(stdout).unwrap();
-        assert!(output.contains("\"audio\":{\"channels\":2"));
-        assert!(output.contains("\"status\":{\"code\":\"partial\""));
+        let record: serde_json::Value =
+            serde_json::from_str(&output).expect("analyze should emit valid JSON");
+        assert_eq!(record["audio"]["channels"], serde_json::json!(2));
+        assert!(
+            record["status"]["code"] == serde_json::json!("ok")
+                || record["status"]["code"] == serde_json::json!("partial")
+        );
         assert!(stderr.is_empty());
     }
 

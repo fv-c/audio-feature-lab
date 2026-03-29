@@ -292,18 +292,6 @@ impl FeatureName {
     }
 }
 
-impl BackendName {
-    pub fn declared_exact_features(self) -> &'static [FeatureName] {
-        let _ = self;
-        &[]
-    }
-
-    pub fn supports_feature(self, feature: FeatureName) -> bool {
-        let _ = (self, feature);
-        true
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AggregationStatistic {
     Mean,
@@ -345,6 +333,103 @@ impl AggregationStatistic {
             "p90" => Ok(Self::P90),
             _ => Err(ConfigError::UnknownAggregationStatistic(value.to_string())),
         }
+    }
+}
+
+const ESSENTIA_EXACT_FEATURES: &[FeatureName] = &[
+    FeatureName::Centroid,
+    FeatureName::Spread,
+    FeatureName::Skewness,
+    FeatureName::Kurtosis,
+    FeatureName::Rolloff,
+    FeatureName::Flux,
+    FeatureName::Energy,
+    FeatureName::Entropy,
+    FeatureName::Complexity,
+    FeatureName::Hfc,
+    FeatureName::StrongPeak,
+    FeatureName::Dissonance,
+    FeatureName::Mfcc,
+    FeatureName::BarkBands,
+    FeatureName::MelBands,
+    FeatureName::ErbBands,
+    FeatureName::Gfcc,
+    FeatureName::Zcr,
+    FeatureName::Rms,
+    FeatureName::DynamicRange,
+    FeatureName::OnsetRate,
+    FeatureName::Tempo,
+    FeatureName::BeatPeriod,
+    FeatureName::Hpcp,
+    FeatureName::Chroma,
+    FeatureName::KeyStrength,
+    FeatureName::TuningFrequency,
+    FeatureName::Loudness,
+    FeatureName::LoudnessEbu,
+    FeatureName::DynamicComplexity,
+    FeatureName::Duration,
+    FeatureName::SilenceRatio,
+    FeatureName::ActiveRatio,
+];
+
+const ESSENTIA_FRAME_LEVEL_FEATURES: &[FeatureName] = &[
+    FeatureName::Centroid,
+    FeatureName::Spread,
+    FeatureName::Skewness,
+    FeatureName::Kurtosis,
+    FeatureName::Rolloff,
+    FeatureName::Flux,
+    FeatureName::Energy,
+    FeatureName::Entropy,
+    FeatureName::Complexity,
+    FeatureName::Hfc,
+    FeatureName::StrongPeak,
+    FeatureName::Dissonance,
+    FeatureName::Mfcc,
+    FeatureName::BarkBands,
+    FeatureName::MelBands,
+    FeatureName::ErbBands,
+    FeatureName::Gfcc,
+    FeatureName::Zcr,
+    FeatureName::Rms,
+    FeatureName::Hpcp,
+    FeatureName::Chroma,
+    FeatureName::LoudnessEbu,
+];
+
+const ESSENTIA_EXACT_AGGREGATION_STATISTICS: &[AggregationStatistic] =
+    &[AggregationStatistic::Mean];
+
+impl BackendName {
+    pub fn declared_exact_features(self) -> &'static [FeatureName] {
+        match self {
+            Self::Essentia => ESSENTIA_EXACT_FEATURES,
+        }
+    }
+
+    pub fn declared_frame_level_features(self) -> &'static [FeatureName] {
+        match self {
+            Self::Essentia => ESSENTIA_FRAME_LEVEL_FEATURES,
+        }
+    }
+
+    pub fn declared_exact_aggregation_statistics(self) -> &'static [AggregationStatistic] {
+        match self {
+            Self::Essentia => ESSENTIA_EXACT_AGGREGATION_STATISTICS,
+        }
+    }
+
+    pub fn supports_feature(self, feature: FeatureName) -> bool {
+        self.declared_exact_features().contains(&feature)
+    }
+
+    pub fn supports_frame_level_feature(self, feature: FeatureName) -> bool {
+        self.declared_frame_level_features().contains(&feature)
+    }
+
+    pub fn supports_aggregation_statistic(self, statistic: AggregationStatistic) -> bool {
+        self.declared_exact_aggregation_statistics()
+            .contains(&statistic)
     }
 }
 
@@ -443,7 +528,7 @@ impl LabConfig {
             raw.aggregation,
             base.as_ref().map(|config| &config.aggregation),
         ) {
-            (Some(raw_aggregation), _) => validate_aggregation(raw_aggregation)?,
+            (Some(raw_aggregation), _) => validate_aggregation(raw_aggregation, backend.name)?,
             (None, Some(aggregation)) => aggregation.clone(),
             (None, None) => return Err(ConfigError::MissingSection("aggregation")),
         };
@@ -529,7 +614,7 @@ fn validate_backend(raw: RawBackendConfig) -> Result<BackendConfig, ConfigError>
 
 fn validate_features(
     raw: RawFeaturesConfig,
-    profile: Profile,
+    _profile: Profile,
 ) -> Result<FeaturesConfig, ConfigError> {
     let families = parse_unique_values(
         raw.families,
@@ -555,13 +640,6 @@ fn validate_features(
         }
     }
 
-    if profile != Profile::Research && enabled.contains(&FeatureName::SpectralPeaks) {
-        return Err(ConfigError::ProfileConstraint {
-            profile,
-            message: "spectral_peaks is only allowed in the research profile".to_string(),
-        });
-    }
-
     Ok(FeaturesConfig {
         families,
         enabled,
@@ -569,7 +647,10 @@ fn validate_features(
     })
 }
 
-fn validate_aggregation(raw: RawAggregationConfig) -> Result<AggregationConfig, ConfigError> {
+fn validate_aggregation(
+    raw: RawAggregationConfig,
+    backend: BackendName,
+) -> Result<AggregationConfig, ConfigError> {
     let statistics = parse_unique_values(
         raw.statistics,
         "aggregation.statistics",
@@ -579,6 +660,16 @@ fn validate_aggregation(raw: RawAggregationConfig) -> Result<AggregationConfig, 
 
     if statistics.is_empty() {
         return Err(ConfigError::EmptySelection("aggregation.statistics"));
+    }
+
+    if let Some(statistic) = statistics
+        .iter()
+        .find(|statistic| !backend.supports_aggregation_statistic(**statistic))
+    {
+        return Err(ConfigError::AggregationUnsupportedByBackend {
+            backend,
+            statistic: statistic.as_str().to_string(),
+        });
     }
 
     Ok(AggregationConfig { statistics })
@@ -649,7 +740,7 @@ fn validate_profile_constraints(
                 });
             }
 
-            for feature in [FeatureName::Gfcc, FeatureName::SpectralPeaks] {
+            for feature in [FeatureName::Gfcc] {
                 if !features.enabled.contains(&feature) {
                     return Err(ConfigError::ProfileConstraint {
                         profile,
@@ -676,6 +767,15 @@ fn validate_backend_constraints(
             backend,
             feature: feature.as_str().to_string(),
         });
+    }
+
+    if features.frame_level
+        && !features
+            .enabled
+            .iter()
+            .any(|feature| backend.supports_frame_level_feature(*feature))
+    {
+        return Err(ConfigError::FrameLevelUnsupportedByBackend { backend });
     }
 
     Ok(())
@@ -743,6 +843,13 @@ pub enum ConfigError {
         backend: BackendName,
         feature: String,
     },
+    AggregationUnsupportedByBackend {
+        backend: BackendName,
+        statistic: String,
+    },
+    FrameLevelUnsupportedByBackend {
+        backend: BackendName,
+    },
     ProfileConstraint {
         profile: Profile,
         message: String,
@@ -780,6 +887,16 @@ impl fmt::Display for ConfigError {
                 "feature `{feature}` is not currently supported by backend `{}`",
                 backend.as_str()
             ),
+            Self::AggregationUnsupportedByBackend { backend, statistic } => write!(
+                f,
+                "aggregation statistic `{statistic}` is not currently supported by backend `{}`",
+                backend.as_str()
+            ),
+            Self::FrameLevelUnsupportedByBackend { backend } => write!(
+                f,
+                "`features.frame_level = true` requires at least one frame-level-capable feature for backend `{}`",
+                backend.as_str()
+            ),
             Self::ProfileConstraint { profile, message } => {
                 write!(f, "profile `{}` is invalid: {message}", profile.as_str())
             }
@@ -805,6 +922,8 @@ impl Error for ConfigError {
             | Self::UnknownAggregationStatistic(_)
             | Self::FeatureOutsideSelectedFamilies { .. }
             | Self::FeatureUnsupportedByBackend { .. }
+            | Self::AggregationUnsupportedByBackend { .. }
+            | Self::FrameLevelUnsupportedByBackend { .. }
             | Self::ProfileConstraint { .. }
             | Self::InvalidWorkers(_) => None,
         }
@@ -841,10 +960,23 @@ mod tests {
             assert_eq!(config.backend.name, BackendName::Essentia);
             assert!(!config.features.families.is_empty());
             assert!(!config.features.enabled.is_empty());
+            assert!(
+                config
+                    .features
+                    .enabled
+                    .iter()
+                    .all(|feature| config.backend.name.supports_feature(*feature))
+            );
             assert_eq!(
                 config.aggregation.statistics,
                 vec![AggregationStatistic::Mean]
             );
+            assert!(config.aggregation.statistics.iter().all(|statistic| {
+                config
+                    .backend
+                    .name
+                    .supports_aggregation_statistic(*statistic)
+            }));
             assert_eq!(config.performance.workers, 1);
         }
     }
@@ -868,9 +1000,9 @@ mod tests {
         assert!(config.features.families.contains(&FeatureFamily::Temporal));
         assert!(config.features.enabled.contains(&FeatureName::Zcr));
         assert!(config.features.enabled.contains(&FeatureName::Rms));
-        assert!(config.features.enabled.contains(&FeatureName::Peak));
-        assert!(config.features.enabled.contains(&FeatureName::Envelope));
         assert!(config.features.enabled.contains(&FeatureName::DynamicRange));
+        assert!(config.features.enabled.contains(&FeatureName::OnsetRate));
+        assert!(config.features.enabled.contains(&FeatureName::LoudnessEbu));
     }
 
     #[test]
@@ -940,8 +1072,8 @@ profile = "minimal"
 name = "future-dsp"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean"]
@@ -1019,8 +1151,8 @@ statistics = ["mean"]
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean", "mean"]
@@ -1041,8 +1173,8 @@ statistics = ["mean", "mean"]
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["variance"]
@@ -1057,34 +1189,24 @@ statistics = ["variance"]
     }
 
     #[test]
-    fn parses_full_supported_aggregation_statistics() {
-        let config = LabConfig::parse_str(
+    fn rejects_backend_unsupported_aggregation_statistic() {
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
-statistics = ["mean", "std", "min", "max", "median", "p10", "p25", "p75", "p90"]
+statistics = ["mean", "std"]
 "#,
         )
-        .expect("supported statistics should parse");
+        .expect_err("Essentia should reject non-mean stats");
 
         assert_eq!(
-            config.aggregation.statistics,
-            vec![
-                AggregationStatistic::Mean,
-                AggregationStatistic::Std,
-                AggregationStatistic::Min,
-                AggregationStatistic::Max,
-                AggregationStatistic::Median,
-                AggregationStatistic::P10,
-                AggregationStatistic::P25,
-                AggregationStatistic::P75,
-                AggregationStatistic::P90,
-            ]
+            error.to_string(),
+            "aggregation statistic `std` is not currently supported by backend `essentia`"
         );
     }
 
@@ -1095,8 +1217,8 @@ statistics = ["mean", "std", "min", "max", "median", "p10", "p25", "p75", "p90"]
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["mfcc", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["mfcc", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean"]
@@ -1133,24 +1255,46 @@ statistics = ["mean"]
     }
 
     #[test]
-    fn rejects_spectral_peaks_outside_research() {
+    fn rejects_feature_not_supported_by_essentia_backend() {
         let error = LabConfig::parse_str(
             r#"
 profile = "default"
 
 [features]
 families = ["spectral", "rhythm", "tonal"]
-enabled = ["mfcc", "tempo", "hpcp", "spectral_peaks"]
+enabled = ["mfcc", "tempo", "hpcp", "flatness"]
 
 [aggregation]
 statistics = ["mean"]
 "#,
         )
-        .expect_err("spectral_peaks should be restricted");
+        .expect_err("unsupported feature should be rejected");
 
         assert_eq!(
             error.to_string(),
-            "profile `default` is invalid: spectral_peaks is only allowed in the research profile"
+            "feature `flatness` is not currently supported by backend `essentia`"
+        );
+    }
+
+    #[test]
+    fn rejects_spectral_peaks_as_unsupported_even_in_research() {
+        let error = LabConfig::parse_str(
+            r#"
+profile = "research"
+
+[features]
+families = ["spectral", "temporal", "rhythm", "tonal", "dynamics", "metadata"]
+enabled = ["mfcc", "gfcc", "bark_bands", "tempo", "hpcp", "loudness", "duration", "spectral_peaks"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("unsupported feature should be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "feature `spectral_peaks` is not currently supported by backend `essentia`"
         );
     }
 
@@ -1183,8 +1327,8 @@ statistics = ["mean"]
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean"]
@@ -1203,8 +1347,8 @@ statistics = ["mean"]
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean"]
@@ -1225,8 +1369,8 @@ workers = 3
 profile = "minimal"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral", "temporal", "metadata"]
+enabled = ["centroid", "zcr", "duration"]
 
 [aggregation]
 statistics = ["mean"]
@@ -1240,6 +1384,29 @@ workers = 0
         assert_eq!(
             error.to_string(),
             "`performance.workers` must be at least 1, got 0"
+        );
+    }
+
+    #[test]
+    fn rejects_frame_level_when_no_selected_feature_supports_it() {
+        let error = LabConfig::parse_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["metadata"]
+enabled = ["duration", "silence_ratio", "active_ratio"]
+frame_level = true
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("frame_level should require at least one frame-capable feature");
+
+        assert_eq!(
+            error.to_string(),
+            "`features.frame_level = true` requires at least one frame-level-capable feature for backend `essentia`"
         );
     }
 

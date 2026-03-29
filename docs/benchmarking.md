@@ -20,10 +20,10 @@ If you only want the native groups, filter the benchmark binary to keep Criterio
 cargo bench -p audio-feature-lab-core --bench phase9 --features native-backend pipeline_single_file_native
 ```
 
-Local native analysis is also available directly with:
+Local native analysis can also be spot-checked with the built binary:
 
 ```sh
-cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/audio/short-stereo-44k.wav
+./target/release/audio-feature-lab analyze fixtures/audio/short-stereo-44k.wav --config configs/default.toml
 ```
 
 ## Preconditions
@@ -31,7 +31,7 @@ cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/aud
 - Rust-only benchmark groups require only the normal Rust workspace
 - native groups require `--features native-backend` and a local Essentia installation visible through `ESSENTIA_PREFIX` or the `/tmp/essentia-install` fallback used by this repository
 - benchmark numbers are only comparable when the same backend availability, build profile, and local machine conditions are preserved
-- for operationally accurate native runs today, keep `aggregation.statistics = ["mean"]`
+- the current public Essentia path is operationally constrained to `aggregation.statistics = ["mean"]`
 
 ## What is measured now
 
@@ -48,10 +48,9 @@ cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/aud
 ## What is not claimed yet
 
 - Windows and Linux native benchmark baselines
-- real profile compute cost for unsupported heavy descriptors such as `spectral_peaks`
 - resident memory measurements from a native backend run
 
-The native benchmarks are real, but they only measure descriptors that the current `MusicExtractor`-based backend actually returns. Unsupported descriptors remain omitted with warnings and must not be inferred from these numbers.
+The native benchmarks are real, but they only measure the current operational descriptor surface of the `MusicExtractor`-based backend. Deferred descriptors are intentionally out of scope.
 
 ## Fixtures
 
@@ -81,6 +80,6 @@ Use the benchmark suite as part of the repository optimization loop:
 3. re-run the relevant benchmark group
 4. compare results before making broader claims
 
-This suite is intentionally explicit about scope: the Rust-only groups stay available everywhere, while the native groups measure the actual local Essentia integration path without claiming unsupported descriptors or cross-platform parity that has not been validated yet.
+This suite is intentionally explicit about scope: the Rust-only groups stay available everywhere, while the native groups measure the actual local Essentia integration path without claiming cross-platform parity that has not been validated yet.
 
 The current local optimization loop also showed that higher worker counts can regress throughput on the native Essentia path. See `docs/performance.md` before changing built-in worker defaults.

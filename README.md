@@ -1,72 +1,93 @@
 # audio-feature-lab
 
-`audio-feature-lab` is a Rust command-line tool for large-scale audio feature extraction with Essentia as the analysis backend.
+`audio-feature-lab` is a Rust command-line tool for corpus-scale audio feature extraction with Essentia as the analysis backend.
 
-It is designed for corpus work:
+It is built for repeatable batch work:
 
 - recursive folder scanning
-- typed profile-driven configuration
+- typed TOML configuration
 - one-record-per-file JSONL output
 - bounded-memory batch processing
-- deterministic nested feature serialization
-- explicit provenance and analysis status per file
+- deterministic nested serialization
+- explicit per-file provenance and status
 
-The repository is written to behave like a real tool, not a notebook or ad hoc script. Unsupported descriptors are omitted with warnings instead of being renamed or approximated.
+The repository is maintained as a software tool. Public commands, shipped configs, and documentation are meant to reflect the operational implementation, not an aspirational design target.
 
 ## Current Status
 
-Today the only supported analysis backend is Essentia.
+Today the only supported public backend is Essentia.
 
-What works:
+What is operational:
 
-- CLI commands for analysis, batch processing, dry-run scanning, config validation, backend inspection, and schema explanation
-- TOML configuration with built-in `minimal`, `default`, and `research` profiles
-- recursive walker with extension filtering, hidden-file policy, symlink policy, and file identity extraction
-- streaming JSONL writing with one record per analyzed file
+- CLI commands for single-file analysis, batch analysis, dry-run scanning, config validation, backend inspection, and schema explanation
+- shipped `minimal`, `default`, and `research` profiles constrained to the descriptors the current Essentia wrapper maps exactly
+- streaming JSONL output with one record per analyzed file
 - bounded worker-pool batch orchestration
+- file identity extraction based on `mtime + size`
 - local benchmark suite for walker, pipeline, JSONL, and native runs
 
-What remains incomplete:
+What is intentionally deferred:
 
-- some requested descriptors are still omitted by the current Essentia wrapper
-- the `schema` block exists but is still sparse
-- canonical paths and content hashes are not yet in the `file` block
-- persistent cross-run caching is not implemented yet
-- native validation is still local on macOS; Linux and Windows native backend work remains open
+- canonical path and content hash fields in the `file` block
+- persistent cross-run cache storage
+- aggregation statistics beyond `mean` on the native backend
+- native validation on Linux and Windows
+- broader design-target descriptors that the current Essentia wrapper does not yet expose
 
-## Requirements
+The current public tool surface does not advertise or ship configs for unsupported descriptors.
 
-Rust-only commands work with a normal Rust toolchain.
+## Build And Install
 
-Real analysis also requires a local Essentia installation reachable by the build script:
+Rust-only commands build with a normal Rust toolchain:
+
+```sh
+cargo build -p audio-feature-lab --release
+```
+
+Real analysis also requires a local Essentia installation reachable by the native build script:
 
 - set `ESSENTIA_PREFIX=/path/to/essentia/prefix`, or
 - provide the repository-local fallback at `/tmp/essentia-install`
 
-The native wrapper is built through `native/essentia-wrapper/CMakeLists.txt`.
+Then build the native-enabled binary:
+
+```sh
+cargo build -p audio-feature-lab --release --features native-backend
+```
+
+After that, use the built binary directly:
+
+```sh
+./target/release/audio-feature-lab --help
+```
+
+If you prefer a local installed command instead of a path under `target/`, install the CLI crate into Cargo's binary directory:
+
+```sh
+cargo install --path crates/audio-feature-lab-cli --features native-backend
+```
 
 ## Quick Start
 
 Commands that do not require Essentia:
 
 ```sh
-cargo run -p audio-feature-lab -- validate-config configs/default.toml
-cargo run -p audio-feature-lab -- scan fixtures/audio --dry-run
-cargo run -p audio-feature-lab -- schema
-cargo run -p audio-feature-lab -- backend-info
+audio-feature-lab validate-config configs/default.toml
+audio-feature-lab scan fixtures/audio --dry-run
+audio-feature-lab schema
+audio-feature-lab backend-info
 ```
 
 Real analysis with a local Essentia installation:
 
 ```sh
-export ESSENTIA_PREFIX=/path/to/essentia/prefix
-cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/audio/short-stereo-44k.wav
-cargo run -p audio-feature-lab --features native-backend -- batch fixtures/audio --output results.jsonl
+audio-feature-lab analyze fixtures/audio/short-stereo-44k.wav --config configs/default.toml
+audio-feature-lab batch /path/to/corpus --config configs/default.toml --output results.jsonl
 ```
 
 Batch progress and summaries are written to `stderr`. JSONL records go to `stdout` or to the file passed with `--output`.
 
-## CLI
+## CLI Surface
 
 Supported commands:
 
@@ -79,20 +100,14 @@ Supported commands:
 - `profiles`
 - `explain-schema`
 
-Typical usage:
-
-```sh
-cargo run -p audio-feature-lab --features native-backend -- batch /path/to/corpus --config configs/default.toml --output results.jsonl
-```
-
 Operational notes:
 
-- `analyze` writes one record
+- `analyze` writes one JSON record
 - `batch` accepts either a single file or a directory tree
 - `scan --dry-run` only lists candidate files; it does not invoke Essentia
 - batch progress lives on `stderr`, so redirecting `stdout` still produces clean JSONL
 - analysis failures still produce per-file records with `status.success = false`
-- a silent or otherwise backend-rejected file is reported in the batch summary and still kept as an error record in JSONL
+- `backend-info` reports the currently supported descriptor surface, frame-level subset, and supported aggregation statistics
 
 ## Configuration
 
@@ -107,21 +122,12 @@ The repository ships three built-in profiles:
 Current behavior:
 
 - all shipped configs use `[backend].name = "essentia"`
+- shipped configs only request descriptors mapped by the current Essentia wrapper
 - frame-level extraction is disabled by default
-- shipped configs currently request `mean` aggregation only
-- the config and data model accept the full allowed statistic set:
-  - `mean`
-  - `std`
-  - `min`
-  - `max`
-  - `median`
-  - `p10`
-  - `p25`
-  - `p75`
-  - `p90`
-- the current native Essentia backend still accepts only `mean`, so real analysis should keep `aggregation.statistics = ["mean"]` for now
+- shipped configs currently use `aggregation.statistics = ["mean"]`
+- config validation rejects feature names and aggregation statistics that are not operational on the current public backend
 
-See [docs/profiles.md](docs/profiles.md) for the profile-specific scope and caveats.
+Use `audio-feature-lab profiles` for a quick profile summary, or see [docs/profiles.md](docs/profiles.md) for the exact shipped scope.
 
 ## Output
 
@@ -142,52 +148,33 @@ Important output rules:
 
 - aggregation remains hierarchical as `aggregation.<family>.<feature>.<statistic>`
 - vector-valued statistics remain arrays
-- `features.<family>` now carries the available file-level descriptor values for the current file
+- `features.<family>` carries file-level descriptor values for the current file
 - `features.frame_level` is always present
 - when frame-level extraction is disabled, `features.frame_level` is `null`
-- unsupported descriptors are omitted instead of being fabricated
-- analysis failures are still represented as records through the `status` block
+- unsupported or unavailable values are omitted rather than fabricated
+- failed analyses are still represented as records through the `status` block
 
 See [docs/feature-schema.md](docs/feature-schema.md) for the current record shape.
 
-## Backend
+## Backend Surface
 
-Essentia is feature-gated so the Rust workspace can still build and test without a local native toolchain.
-
-When `native-backend` is enabled:
+When the binary is built with `native-backend`:
 
 - Rust handles orchestration, configuration, walker logic, schema ownership, JSONL writing, and user-facing errors
-- Essentia handles descriptor extraction and backend-specific analysis work
+- Essentia handles descriptor extraction
 - the FFI boundary remains one JSON-returning call per file
-- the current native wrapper supports only `mean` aggregation statistics
-- frame-level output is supported only for descriptors the backend can actually emit
+- the current native wrapper accepts only `mean` aggregation
+- frame-level output is available only for the descriptors the wrapper can actually emit frame-by-frame
 
-Local build assumptions:
-
-- `ESSENTIA_PREFIX` points to a usable Essentia installation
-- the build script can also use `/tmp/essentia-install` as a repository-local fallback
-- the native wrapper is built through `native/essentia-wrapper/CMakeLists.txt`
-
-## Performance
-
-The tool is engineered for streaming and bounded memory:
-
-- no full-dataset accumulation in the batch path
-- progressive sink writes
-- config serialization once per pipeline instance
-- backend version lookup cached once per pipeline instance
-- bounded worker queues
-- output ordering preserved in batch mode
-
-Current local benchmark evidence is documented in [docs/performance.md](docs/performance.md). The built-in configs keep `workers = 1` because higher worker counts regressed on the current measured native path.
+Broader design-target descriptors remain deferred until the backend can support them credibly. They are not part of the shipped operational surface today.
 
 ## Platform Status
 
 - macOS: native Essentia path exercised locally
-- Linux: Rust-only path and build scaffolding are in place; native validation is still open
+- Linux: Rust-only path and native build scaffolding exist; native validation is still open
 - Windows: Rust-only path is part of the intended support surface; native Essentia integration is still open
 
-See [docs/platforms.md](docs/platforms.md) for build and release realism per platform.
+See [docs/platforms.md](docs/platforms.md) for platform-specific build realism.
 
 ## Documentation Map
 
@@ -195,7 +182,7 @@ See [docs/platforms.md](docs/platforms.md) for build and release realism per pla
 - [docs/architecture.md](docs/architecture.md): crate boundaries and runtime flow
 - [docs/ffi-boundary.md](docs/ffi-boundary.md): native boundary contract
 - [docs/feature-schema.md](docs/feature-schema.md): JSONL record shape
-- [docs/profiles.md](docs/profiles.md): profile behavior and caveats
+- [docs/profiles.md](docs/profiles.md): shipped profile behavior
 - [docs/performance.md](docs/performance.md): current cost model and optimization strategy
 - [docs/benchmarking.md](docs/benchmarking.md): benchmark commands and interpretation
 - [docs/platforms.md](docs/platforms.md): platform status and native-build expectations
@@ -218,9 +205,3 @@ The default GitHub Actions workflow is manual-only via `workflow_dispatch` and c
 The repository is licensed under `AGPL-3.0-only`.
 
 This is an Essentia-oriented tool and does not attempt to weaken the AGPL implications of using Essentia as the analysis backend. Generated JSONL feature data is documented separately from the software license and is not automatically treated as AGPL solely because this tool produced it.
-
-See:
-
-- [LICENSE](LICENSE)
-- [THIRD_PARTY.md](THIRD_PARTY.md)
-- [docs/licensing.md](docs/licensing.md)

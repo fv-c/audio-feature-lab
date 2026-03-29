@@ -13,4 +13,4 @@ Use the top-level [README.md](../README.md) first for a quick start, then use th
 - [ffi-boundary.md](ffi-boundary.md): native ABI contract and build requirements
 - [licensing.md](licensing.md): AGPL-oriented software licensing and output-data distinction
 
-`docs/agent/` remains the authoritative design specification for repository constraints. The documents in `docs/` describe the implementation that exists today. When there is a gap between the ideal target and the current implementation, these documents should say so explicitly instead of implying work that has not been completed.
+`docs/agent/` remains the authoritative design specification for repository constraints. The documents in `docs/` describe the implementation that exists today. When there is a gap between the ideal target and the current implementation, these documents should narrow the public surface to the operational subset and list the deferred pieces explicitly instead of implying work that has not been completed.

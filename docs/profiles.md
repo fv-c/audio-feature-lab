@@ -1,159 +1,77 @@
 # Profiles
 
-The repository ships three built-in profile configs:
+The repository ships three profile configs:
 
 - `configs/minimal.toml`
 - `configs/default.toml`
 - `configs/research.toml`
 
-These files are the current operational defaults for the CLI and benchmark suite.
-
-All shipped configs currently include:
-
-- `[backend].name = "essentia"`
+These are the operational defaults for the current public Essentia backend. They are intentionally constrained to descriptors the wrapper maps today.
 
 ## Shared Current Behavior
 
-- configuration is loaded from TOML into strongly typed Rust structs
-- profile names are validated
-- feature families and feature names are validated against the controlled vocabulary
-- the config and record model accept the full allowed aggregation statistic set
-- frame-level extraction is disabled by default in all shipped configs
-- `[performance].workers` is currently `1` in all shipped configs
+- `[backend].name = "essentia"` in all shipped configs
+- `aggregation.statistics = ["mean"]` in all shipped configs
+- `frame_level = false` in all shipped configs
+- `[performance].workers = 1` in all shipped configs
 
-The worker default is conservative on purpose. Current measured local native runs showed regression at higher counts.
-
-Important operational caveat:
-
-- the current Essentia backend still accepts only `aggregation.statistics = ["mean"]`
-- the shipped configs are therefore the safe operational defaults for real analysis today
+The worker default is conservative on purpose. Current measured native runs regressed at higher worker counts on the validated local macOS path.
 
 ## minimal
 
 Purpose:
 
-- lowest-cost baseline profile
-- useful for fast corpus passes and pipeline validation
+- fastest operational baseline
+- low-cost corpus passes
+- no vector features
 
-Current shipped config:
+Current shipped features:
 
-- focuses on a small set of spectral, temporal, dynamics, and metadata features
-- enabled features:
-  - `centroid`
-  - `rolloff`
-  - `flux`
-  - `flatness`
-  - `zcr`
-  - `rms`
-  - `loudness`
-  - `duration`
-  - `silence_ratio`
-  - `active_ratio`
-- keeps frame-level disabled
-- ships with `mean` aggregation only
-
-Important caveat:
-
-- the current `minimal.toml` is the repository's operational profile file, even where it is slightly more conservative or narrower than the broader ideal described in `docs/agent/profiles.md`
+- `spectral`: `centroid`, `rolloff`, `flux`, `energy`
+- `temporal`: `zcr`, `rms`
+- `metadata`: `duration`, `silence_ratio`, `active_ratio`
 
 ## default
 
 Purpose:
 
-- balanced general-use corpus analysis
-- includes vector features such as `mfcc`
+- balanced operational profile
+- richer spectral coverage plus supported temporal, rhythm, tonal, dynamics, and metadata features
 
-Current shipped config:
+Current shipped features:
 
-- enables spectral, temporal, rhythm, tonal, dynamics, and metadata families
-- enabled features:
-  - `centroid`
-  - `spread`
-  - `rolloff`
-  - `flux`
-  - `flatness`
-  - `entropy`
-  - `hfc`
-  - `mfcc`
-  - `zcr`
-  - `rms`
-  - `peak`
-  - `dynamic_range`
-  - `tempo`
-  - `beat_period`
-  - `onset_strength`
-  - `hpcp`
-  - `chroma`
-  - `key_strength`
-  - `tuning_frequency`
-  - `loudness`
-  - `dynamic_complexity`
-  - `duration`
-  - `silence_ratio`
-  - `active_ratio`
-- keeps frame-level disabled
-- ships with `mean` aggregation only
+- `spectral`: `centroid`, `spread`, `skewness`, `kurtosis`, `rolloff`, `flux`, `energy`, `entropy`, `complexity`, `hfc`, `strong_peak`, `dissonance`, `mfcc`
+- `temporal`: `zcr`, `rms`, `dynamic_range`
+- `rhythm`: `onset_rate`, `tempo`, `beat_period`
+- `tonal`: `hpcp`, `chroma`, `key_strength`, `tuning_frequency`
+- `dynamics`: `loudness`, `dynamic_complexity`
+- `metadata`: `duration`, `silence_ratio`, `active_ratio`
 
 ## research
 
 Purpose:
 
-- heavier exploratory profile for richer descriptor requests
+- heaviest shipped profile on the current backend
+- extends `default` with supported band features and additional heavy descriptors
 
-Current shipped config:
+Current shipped features:
 
-- extends the requested spectral set with band features, `gfcc`, and `spectral_peaks`
-- enables spectral, temporal, rhythm, tonal, dynamics, and metadata families
-- enabled features:
-  - `centroid`
-  - `spread`
-  - `rolloff`
-  - `flux`
-  - `flatness`
-  - `entropy`
-  - `contrast`
-  - `hfc`
-  - `dissonance`
-  - `inharmonicity`
-  - `mfcc`
-  - `bark_bands`
-  - `mel_bands`
-  - `erb_bands`
-  - `gfcc`
-  - `spectral_peaks`
-  - `zcr`
-  - `rms`
-  - `peak`
-  - `envelope`
-  - `dynamic_range`
-  - `tempo`
-  - `beat_period`
-  - `onset_strength`
-  - `hpcp`
-  - `chroma`
-  - `key_strength`
-  - `tuning_frequency`
-  - `loudness`
-  - `dynamic_complexity`
-  - `duration`
-  - `silence_ratio`
-  - `active_ratio`
-- keeps frame-level disabled by default
-- ships with `mean` aggregation only
+- all `default` features, plus:
+- `spectral`: `bark_bands`, `mel_bands`, `erb_bands`, `gfcc`
+- `dynamics`: `loudness_ebu`
 
-Important caveat:
+## Deferred Descriptor Coverage
 
-- the current native backend does not emit every requested research descriptor yet
-- unsupported descriptors remain omitted with warnings instead of being approximated
+These controlled-vocabulary names remain explicitly deferred for the public Essentia backend and are not part of the shipped configs:
 
-## Backend Coverage Caveat
+- `spectral`: `flatness`, `crest`, `contrast`, `inharmonicity`, `spectral_peaks`
+- `temporal`: `peak`, `envelope`
+- `rhythm`: `onset_strength`, `inter_onset_interval`
 
-The profile vocabulary is broader than the currently implemented native descriptor coverage. In practice:
+They are backlog, not operational product surface. Operator configs that request them should be rejected during validation instead of being treated as normal profile choices.
 
-- requesting a feature does not force the backend to fabricate it
-- unsupported requested features remain absent from the output
-- warnings document these omissions
+## Frame-Level Note
 
-This is intentional and preferable to renaming or approximating descriptors.
+Frame-level extraction is supported only for a subset of descriptors and is disabled by default in all shipped configs.
 
-The shipped profile files remain anchored to `essentia`, which is the only backend currently supported publicly.
+Use `audio-feature-lab backend-info` to inspect the current frame-level-capable subset exposed by the backend.

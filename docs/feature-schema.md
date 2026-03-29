@@ -40,7 +40,9 @@ Representative shape:
     "aggregation_statistics": ["mean"]
   },
   "features": {
-    "spectral": {},
+    "spectral": {
+      "centroid": 123.0
+    },
     "temporal": {},
     "rhythm": {},
     "tonal": {},
@@ -116,8 +118,7 @@ Representative shape:
 
 - nested structure `family -> feature -> statistic`
 - vector-valued statistics remain arrays
-- the record model supports the full allowed statistic set
-- the current native Essentia backend emits `mean` only
+- the record model preserves the statistic namespace, but the current public Essentia backend emits `mean` only
 - with the current backend, `aggregation.*.*.mean` often mirrors the corresponding `features.<family>.<feature>` value
 
 `provenance`
@@ -149,15 +150,17 @@ Flattened keys such as `mfcc_01_mean` are not produced by the current implementa
 - frame-level scalar sequences serialize as arrays of numbers
 - frame-level vector sequences serialize as arrays of arrays
 
-Unsupported descriptors are omitted. They are not renamed, approximated, or flattened.
+Values are not renamed, approximated, or flattened.
 
 ## Current Coverage Caveat
 
-The controlled vocabulary is broader than the set of descriptors the current `MusicExtractor` wrapper emits. Requested but unsupported descriptors remain absent from `features` and `aggregation`, and the backend reports warnings instead of silently fabricating values.
+The broader design vocabulary under `docs/agent/` remains a future target, but the current public tool surface is narrower. Config validation rejects descriptors and aggregation statistics that are not operational on the current Essentia backend.
+
+At record time, warnings are reserved for file-specific unavailability or backend-specific partial results, not for descriptors that should never have been accepted in the first place.
 
 ## Current Implementation Gaps Against The Target Spec
 
 - `schema` is reserved but still sparse
 - `file` does not yet include canonical path or optional fingerprint fields
 - `analysis` does not yet include an analysis timestamp
-- full aggregation vocabulary is modeled, but the native backend still operates on `mean` only
+- the native backend still operates on `mean` only

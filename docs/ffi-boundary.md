@@ -29,8 +29,8 @@ The Rust workspace does not expose the Essentia API directly.
 
 - one call per file keeps cross-language overhead low
 - JSON avoids a large shared type graph across Rust and C++
-- unsupported descriptors can be omitted naturally without inventing placeholder structs
-- Rust remains the owner of the final repository record shape
+- Rust keeps ownership of the repository record shape
+- backend-local omissions can be represented without proliferating unsafe bindings
 
 ## Current Payload Contract
 
@@ -41,27 +41,29 @@ The native backend returns one JSON string containing:
 - `aggregation`
 - `status`
 
-Rust then adds:
+Rust adds:
 
 - `schema`
 - `file`
 - `analysis`
 - `provenance`
 
-This split is deliberate. It keeps the native side focused on analysis, not repository-level bookkeeping.
-
 ## Current Essentia Behavior
 
-The current C++ wrapper is intentionally conservative:
+The current C++ wrapper is conservative and measurable:
 
 - one native call per file
 - `mean` aggregation only
-- available file-level descriptor values are returned in `features.<family>`
-- frame-level output only for descriptors the backend can actually emit
-- unsupported requested descriptors are omitted and reported through warnings
-- backend-side analysis failures are returned as structured failures rather than being hidden
+- file-level descriptor values in `features.<family>`
+- optional frame-level data only for descriptors the backend can actually emit frame-by-frame
+- structured backend-side failures
 
-This makes the boundary measurable and predictable, but it also means the native wrapper does not yet expose the full vocabulary described in `docs/agent/`.
+The important product rule is now upstream of the boundary:
+
+- configs that request unsupported descriptors are rejected before the backend call
+- configs that request unsupported aggregation statistics are rejected before the backend call
+
+Runtime warnings remain useful for unexpected omissions or file-specific failures, but unsupported public states should no longer reach the native layer through shipped configs or validated operator configs.
 
 ## Unsafe Code Boundary
 
@@ -72,25 +74,24 @@ This makes the boundary measurable and predictable, but it also means the native
 ## Current Limitations
 
 - the safe wrapper currently requires UTF-8 file paths because the native API accepts `const char*`
-- the current native backend rejects aggregation requests other than `mean`
-- invalid JSON from the backend is treated as a backend-response failure and converted into an error record
-- unsupported descriptors remain omitted with warnings instead of being approximated
-- the current wrapper is validated locally on macOS only
+- the current public Essentia backend exposes only `mean` in `aggregation`
+- frame-level output is a supported subset, not a full descriptor-wide guarantee
+- the wrapper is validated locally on macOS only
 
 ## Build Requirements
 
 When the Essentia `native-backend` feature is enabled:
 
-- `ESSENTIA_PREFIX` should point to a local Essentia installation prefix
-- `pkg-config` must be able to resolve the Essentia installation
+- `ESSENTIA_PREFIX` should point to a local Essentia installation prefix, or
+- `/tmp/essentia-install` can be used as the repository-local fallback when present
+- `pkg-config` must resolve the Essentia installation
 - the wrapper is built through `native/essentia-wrapper/CMakeLists.txt`
 
-The current build script also supports a repository-local fallback at `/tmp/essentia-install` when that path contains a usable Essentia install.
+## Future Boundary Rules
 
-No additional backend is currently exposed publicly. Any future backend should follow the same narrow-boundary rule and should not be exposed until its descriptor coverage is credible against the controlled vocabulary.
+Any future backend must follow the same rules:
 
-## Platform Notes
-
-- macOS: current local validation path
-- Linux: intended to work through `pkg-config` and the C++ standard library, but not yet validated in repository automation
-- Windows: Rust workspace support exists, but native Essentia linking and runtime packaging still require explicit platform-specific work
+- narrow per-file API
+- JSON payload boundary
+- explicit capability gating
+- no public exposure until descriptor coverage is credible against the controlled vocabulary

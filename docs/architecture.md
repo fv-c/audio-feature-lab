@@ -85,7 +85,8 @@ The pipeline tries to preserve one record per requested file, even when analysis
 - backend call failures become records with an error `status`
 - backend payload parse failures become records with an error `status`
 - file-level failures are surfaced on `stderr` in batch mode and remain visible in JSONL output
-- unsupported requested descriptors are omitted and reported through warnings rather than being renamed or approximated
+- descriptors or aggregation statistics outside the current backend coverage are rejected at config-validation time
+- descriptor values that are operationally supported but unavailable for a specific file remain visible through warnings instead of being renamed or approximated
 
 This is intentional. The tool is meant for corpus work, where partial completion with explicit failures is usually more useful than an aborted whole-run result.
 
@@ -102,6 +103,6 @@ The only supported public backend today is Essentia:
 - the `schema` block exists but is still reserved rather than fully populated
 - the `file` block currently uses baseline identity fields instead of canonical paths and content hashes
 - persistent cross-run caching is not implemented yet; today the repository has file identity primitives and skip-logic benchmarking groundwork, not a finished cache layer
-- the config and model accept the full allowed aggregation vocabulary, but the current native Essentia path only supports `mean`
+- the current native Essentia path only supports `mean`, so non-`mean` aggregation is not part of the operational public surface
 - the current native backend is validated locally on macOS; Linux and Windows native validation remain open work
-- the current backend omits some requested descriptors with warnings instead of approximating them
+- some design-target descriptors remain deferred entirely until the backend can support them credibly
