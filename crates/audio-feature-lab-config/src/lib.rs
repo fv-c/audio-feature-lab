@@ -43,21 +43,18 @@ impl Profile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendName {
     Essentia,
-    Mpeg7,
 }
 
 impl BackendName {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Essentia => "essentia",
-            Self::Mpeg7 => "mpeg7",
         }
     }
 
     fn parse(value: &str) -> Result<Self, ConfigError> {
         match value {
             "essentia" => Ok(Self::Essentia),
-            "mpeg7" => Ok(Self::Mpeg7),
             _ => Err(ConfigError::UnknownBackend(value.to_string())),
         }
     }
@@ -295,40 +292,57 @@ impl FeatureName {
     }
 }
 
-const MPEG7_DECLARED_EXACT_FEATURES: [FeatureName; 2] =
-    [FeatureName::Centroid, FeatureName::Spread];
-
 impl BackendName {
     pub fn declared_exact_features(self) -> &'static [FeatureName] {
-        match self {
-            Self::Essentia => &[],
-            Self::Mpeg7 => &MPEG7_DECLARED_EXACT_FEATURES,
-        }
+        let _ = self;
+        &[]
     }
 
     pub fn supports_feature(self, feature: FeatureName) -> bool {
-        match self {
-            Self::Essentia => true,
-            Self::Mpeg7 => self.declared_exact_features().contains(&feature),
-        }
+        let _ = (self, feature);
+        true
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AggregationStatistic {
     Mean,
+    Std,
+    Min,
+    Max,
+    Median,
+    P10,
+    P25,
+    P75,
+    P90,
 }
 
 impl AggregationStatistic {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Mean => "mean",
+            Self::Std => "std",
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Median => "median",
+            Self::P10 => "p10",
+            Self::P25 => "p25",
+            Self::P75 => "p75",
+            Self::P90 => "p90",
         }
     }
 
     fn parse(value: &str) -> Result<Self, ConfigError> {
         match value {
             "mean" => Ok(Self::Mean),
+            "std" => Ok(Self::Std),
+            "min" => Ok(Self::Min),
+            "max" => Ok(Self::Max),
+            "median" => Ok(Self::Median),
+            "p10" => Ok(Self::P10),
+            "p25" => Ok(Self::P25),
+            "p75" => Ok(Self::P75),
+            "p90" => Ok(Self::P90),
             _ => Err(ConfigError::UnknownAggregationStatistic(value.to_string())),
         }
     }
@@ -915,53 +929,6 @@ statistics = ["mean"]
     }
 
     #[test]
-    fn parses_explicit_mpeg7_backend() {
-        let config = LabConfig::parse_str(
-            r#"
-profile = "minimal"
-
-[backend]
-name = "mpeg7"
-
-[features]
-families = ["spectral"]
-enabled = ["centroid", "spread"]
-
-[aggregation]
-statistics = ["mean"]
-"#,
-        )
-        .expect("mpeg7 backend should parse");
-
-        assert_eq!(config.backend.name, BackendName::Mpeg7);
-    }
-
-    #[test]
-    fn rejects_feature_not_supported_by_mpeg7_backend() {
-        let error = LabConfig::parse_str(
-            r#"
-profile = "minimal"
-
-[backend]
-name = "mpeg7"
-
-[features]
-families = ["spectral", "temporal"]
-enabled = ["centroid", "zcr"]
-
-[aggregation]
-statistics = ["mean"]
-"#,
-        )
-        .expect_err("mpeg7 backend should reject unsupported feature");
-
-        assert_eq!(
-            error.to_string(),
-            "feature `zcr` is not currently supported by backend `mpeg7`"
-        );
-    }
-
-    #[test]
     fn rejects_unknown_feature_family() {
         let error = LabConfig::parse_str(
             r#"
@@ -1054,12 +1021,47 @@ families = ["spectral", "temporal", "dynamics", "metadata"]
 enabled = ["centroid", "zcr", "loudness", "duration"]
 
 [aggregation]
-statistics = ["median"]
+statistics = ["variance"]
 "#,
         )
         .expect_err("unsupported statistic");
 
-        assert_eq!(error.to_string(), "unknown aggregation statistic `median`");
+        assert_eq!(
+            error.to_string(),
+            "unknown aggregation statistic `variance`"
+        );
+    }
+
+    #[test]
+    fn parses_full_supported_aggregation_statistics() {
+        let config = LabConfig::parse_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean", "std", "min", "max", "median", "p10", "p25", "p75", "p90"]
+"#,
+        )
+        .expect("supported statistics should parse");
+
+        assert_eq!(
+            config.aggregation.statistics,
+            vec![
+                AggregationStatistic::Mean,
+                AggregationStatistic::Std,
+                AggregationStatistic::Min,
+                AggregationStatistic::Max,
+                AggregationStatistic::Median,
+                AggregationStatistic::P10,
+                AggregationStatistic::P25,
+                AggregationStatistic::P75,
+                AggregationStatistic::P90,
+            ]
+        );
     }
 
     #[test]

@@ -1226,9 +1226,6 @@ mod tests {
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("backend: essentia"));
         assert!(output.contains("status: unavailable"));
-        assert!(output.contains("backend: mpeg7"));
-        assert!(output.contains("mpeg7 backend is unavailable"));
-        assert!(output.contains("declared_exact_features: centroid, spread"));
         assert!(stderr.is_empty());
     }
 
@@ -1251,9 +1248,6 @@ mod tests {
         assert!(output.contains("backend: essentia"));
         assert!(output.contains("status: available"));
         assert!(output.contains("version: essentia"));
-        assert!(output.contains("backend: mpeg7"));
-        assert!(output.contains("mpeg7 backend is unavailable"));
-        assert!(output.contains("declared_exact_features: centroid, spread"));
         assert!(stderr.is_empty());
     }
 

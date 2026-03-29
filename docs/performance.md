@@ -2,7 +2,7 @@
 
 This repository treats performance as a first-class engineering constraint.
 
-## Implemented Strategy
+## Design Priorities
 
 - stream records directly to JSONL sinks instead of accumulating the corpus in memory
 - serialize backend config once per pipeline instance
@@ -11,6 +11,15 @@ This repository treats performance as a first-class engineering constraint.
 - keep batch concurrency bounded and clamp it to `available_parallelism()`
 - preserve output order while writing records progressively on the main thread
 - keep expensive payloads opt-in, especially frame-level output
+
+## What Is Implemented Today
+
+- recursive walker with extension filtering and bounded metadata work
+- one-record-per-file JSONL writing
+- bounded worker pool for batch mode
+- one backend call per file
+- deterministic record serialization
+- benchmark coverage for walker, JSONL, pipeline overhead, skip-logic groundwork, and native runs
 
 ## Current Cost Centers
 
@@ -33,6 +42,13 @@ Local measurement on 2026-03-29 against a 4-file WAV corpus on the current macOS
 - `workers = 4`: 31.7 s
 
 That result means higher worker counts are not a safe default on the current native backend path. The built-in profile configs therefore keep `workers = 1`, while the bounded parallel path remains available for explicit benchmarking and platform-specific tuning.
+
+## What Is Not Finished Yet
+
+- persistent cross-run cache storage is not implemented yet
+- the current native backend still supports `mean` aggregation only
+- Linux and Windows native benchmark baselines do not exist yet
+- memory measurements for long native runs are still missing
 
 ## Practical Guidance
 

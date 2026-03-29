@@ -110,12 +110,46 @@ pub enum AggregatedFeature {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScalarStatistics {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mean: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub std: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p10: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p25: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p75: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p90: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct VectorStatistics {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mean: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub std: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub median: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p10: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p25: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p75: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p90: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -253,12 +287,18 @@ mod tests {
         let mut aggregation = Aggregation::default();
         aggregation.spectral.insert(
             SpectralFeature::Centroid,
-            AggregatedFeature::Scalar(ScalarStatistics { mean: Some(123.5) }),
+            AggregatedFeature::Scalar(ScalarStatistics {
+                mean: Some(123.5),
+                std: Some(4.0),
+                ..ScalarStatistics::default()
+            }),
         );
         aggregation.spectral.insert(
             SpectralFeature::Mfcc,
             AggregatedFeature::Vector(VectorStatistics {
                 mean: Some(vec![1.0, 2.0, 3.0]),
+                std: Some(vec![0.1, 0.2, 0.3]),
+                ..VectorStatistics::default()
             }),
         );
 
@@ -273,9 +313,18 @@ mod tests {
             json!(123.5)
         );
         assert_eq!(
+            value["aggregation"]["spectral"]["centroid"]["std"],
+            json!(4.0)
+        );
+        assert_eq!(
             value["aggregation"]["spectral"]["mfcc"]["mean"],
             json!([1.0, 2.0, 3.0])
         );
+        assert_eq!(
+            value["aggregation"]["spectral"]["mfcc"]["std"],
+            json!([0.1, 0.2, 0.3])
+        );
+        assert!(value["aggregation"]["spectral"]["centroid"]["p25"].is_null());
         assert!(value["aggregation"].get("spectral.centroid.mean").is_none());
     }
 
@@ -405,11 +454,17 @@ mod tests {
             SpectralFeature::Mfcc,
             AggregatedFeature::Vector(VectorStatistics {
                 mean: Some(vec![0.1, 0.2, 0.3]),
+                p90: Some(vec![0.4, 0.5, 0.6]),
+                ..VectorStatistics::default()
             }),
         );
         aggregation.tonal.insert(
             TonalFeature::KeyStrength,
-            AggregatedFeature::Scalar(ScalarStatistics { mean: Some(0.91) }),
+            AggregatedFeature::Scalar(ScalarStatistics {
+                mean: Some(0.91),
+                median: Some(0.9),
+                ..ScalarStatistics::default()
+            }),
         );
 
         AnalysisRecord {

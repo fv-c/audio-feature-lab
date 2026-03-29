@@ -1,18 +1,16 @@
 # Documentation
 
-`docs/agent/` is the authoritative specification for this repository.
+This directory documents the current repository as an operational tool.
 
-Future project-facing documentation should extend this directory without overriding the constraints defined in `docs/agent/`.
+Use the top-level [README.md](../README.md) first for a quick start, then use the documents here for the specific area you need:
 
-Current project-facing documents:
+- [architecture.md](architecture.md): workspace layout, runtime flow, and current boundaries between Rust and Essentia
+- [feature-schema.md](feature-schema.md): exact JSONL record shape and current schema caveats
+- [profiles.md](profiles.md): shipped profile configs and what they request today
+- [performance.md](performance.md): current cost model, worker guidance, and optimization priorities
+- [benchmarking.md](benchmarking.md): benchmark commands, scope, and interpretation
+- [platforms.md](platforms.md): platform support realism and native-build expectations
+- [ffi-boundary.md](ffi-boundary.md): native ABI contract and build requirements
+- [licensing.md](licensing.md): AGPL-oriented software licensing and output-data distinction
 
-- `architecture.md`
-- `benchmarking.md`
-- `feature-schema.md`
-- `ffi-boundary.md`
-- `licensing.md`
-- `performance.md`
-- `platforms.md`
-- `profiles.md`
-
-These documents describe the current implementation. When they differ from the ideal target in `docs/agent/`, they should state that gap explicitly instead of implying work that has not been completed yet.
+`docs/agent/` remains the authoritative design specification for repository constraints. The documents in `docs/` describe the implementation that exists today. When there is a gap between the ideal target and the current implementation, these documents should say so explicitly instead of implying work that has not been completed.

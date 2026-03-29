@@ -19,6 +19,7 @@ Relevant repository files:
 - Essentia is the intended native analysis backend
 - the Rust workspace orchestrates analysis around it
 - the native wrapper is a narrow bridge, not a license-avoidance boundary
+- the repository does not attempt to treat the native boundary as a way to weaken AGPL obligations
 
 ## Distribution And Network Use
 
@@ -42,3 +43,11 @@ That does not remove other rights considerations:
 - distribution or reuse of audio-derived data may still depend on the source material and the surrounding legal context
 
 In short: generated feature data is not automatically subject to AGPL and can be used independently, subject to rights on the original audio material.
+
+## Documentation Posture
+
+This repository documents licensing conservatively:
+
+- software licensing is described in AGPL-oriented terms
+- output data is documented separately from the software license
+- the documentation does not promise any strategy for isolating Essentia from the rest of the tool

@@ -17,11 +17,16 @@ All shipped configs currently include:
 - configuration is loaded from TOML into strongly typed Rust structs
 - profile names are validated
 - feature families and feature names are validated against the controlled vocabulary
-- aggregation statistics are currently implemented as `mean`
+- the config and record model accept the full allowed aggregation statistic set
 - frame-level extraction is disabled by default in all shipped configs
 - `[performance].workers` is currently `1` in all shipped configs
 
 The worker default is conservative on purpose. Current measured local native runs showed regression at higher counts.
+
+Important operational caveat:
+
+- the current Essentia backend still accepts only `aggregation.statistics = ["mean"]`
+- the shipped configs are therefore the safe operational defaults for real analysis today
 
 ## minimal
 
@@ -33,8 +38,19 @@ Purpose:
 Current shipped config:
 
 - focuses on a small set of spectral, temporal, dynamics, and metadata features
+- enabled features:
+  - `centroid`
+  - `rolloff`
+  - `flux`
+  - `flatness`
+  - `zcr`
+  - `rms`
+  - `loudness`
+  - `duration`
+  - `silence_ratio`
+  - `active_ratio`
 - keeps frame-level disabled
-- uses `mean` aggregation only
+- ships with `mean` aggregation only
 
 Important caveat:
 
@@ -50,8 +66,29 @@ Purpose:
 Current shipped config:
 
 - enables spectral, rhythm, tonal, dynamics, and metadata families
+- enabled features:
+  - `centroid`
+  - `spread`
+  - `rolloff`
+  - `flux`
+  - `flatness`
+  - `entropy`
+  - `hfc`
+  - `mfcc`
+  - `tempo`
+  - `beat_period`
+  - `onset_strength`
+  - `hpcp`
+  - `chroma`
+  - `key_strength`
+  - `tuning_frequency`
+  - `loudness`
+  - `dynamic_complexity`
+  - `duration`
+  - `silence_ratio`
+  - `active_ratio`
 - keeps frame-level disabled
-- uses `mean` aggregation only
+- ships with `mean` aggregation only
 
 ## research
 
@@ -62,8 +99,37 @@ Purpose:
 Current shipped config:
 
 - extends the requested spectral set with band features, `gfcc`, and `spectral_peaks`
+- enabled features:
+  - `centroid`
+  - `spread`
+  - `rolloff`
+  - `flux`
+  - `flatness`
+  - `entropy`
+  - `contrast`
+  - `hfc`
+  - `dissonance`
+  - `inharmonicity`
+  - `mfcc`
+  - `bark_bands`
+  - `mel_bands`
+  - `erb_bands`
+  - `gfcc`
+  - `spectral_peaks`
+  - `tempo`
+  - `beat_period`
+  - `onset_strength`
+  - `hpcp`
+  - `chroma`
+  - `key_strength`
+  - `tuning_frequency`
+  - `loudness`
+  - `dynamic_complexity`
+  - `duration`
+  - `silence_ratio`
+  - `active_ratio`
 - keeps frame-level disabled by default
-- uses `mean` aggregation only
+- ships with `mean` aggregation only
 
 Important caveat:
 
@@ -80,9 +146,4 @@ The profile vocabulary is broader than the currently implemented native descript
 
 This is intentional and preferable to renaming or approximating descriptors.
 
-Selecting a different backend such as `mpeg7` is now supported by config and pipeline dispatch, but shipped profile files remain anchored to `essentia` until a real MPEG-7 native implementation exists.
-
-Current MPEG-7 compatibility is intentionally conservative:
-
-- declared exact subset: `centroid`, `spread`
-- features outside that subset are rejected during config validation when `backend.name = "mpeg7"`
+The shipped profile files remain anchored to `essentia`, which is the only backend currently supported publicly.

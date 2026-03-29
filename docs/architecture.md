@@ -2,6 +2,10 @@
 
 This document describes the current implementation in the preserved workspace layout.
 
+## Design Summary
+
+`audio-feature-lab` is split so that Rust owns orchestration and storage, while Essentia owns descriptor extraction. The design goal is to keep the native boundary narrow, keep memory bounded in batch runs, and preserve a stable JSONL schema regardless of backend internals.
+
 ## Workspace Roles
 
 - `crates/audio-feature-lab-cli`
@@ -11,7 +15,7 @@ This document describes the current implementation in the preserved workspace la
 - `crates/audio-feature-lab-core`
   Owns the domain model, walker, file identity extraction, streaming pipeline orchestration, and JSONL storage primitives.
 - `crates/audio-feature-lab-ffi`
-  Provides the project-facing backend API used by the rest of the Rust workspace and dispatches by configured backend name.
+  Provides the project-facing backend API used by the rest of the Rust workspace.
 - `crates/afl-essentia`
   Contains the safe Rust wrapper around the raw native interface.
 - `crates/afl-essentia-sys`
@@ -39,7 +43,7 @@ Rust is responsible for:
 - schema shape and deterministic serialization
 - JSONL storage
 - CLI behavior, progress, and user-visible errors
-- backend selection and repository-level provenance fields
+- repository-level provenance fields
 
 Essentia is responsible for:
 
@@ -47,7 +51,7 @@ Essentia is responsible for:
 - frame-level and aggregated feature computation
 - backend-specific analysis failures
 
-## Memory And Concurrency Strategy
+## Streaming And Concurrency Strategy
 
 - no full-dataset accumulation is allowed in the normal batch path
 - records are written progressively as they become ready
@@ -68,21 +72,30 @@ The Rust pipeline owns the outer record shape. The native backend currently only
 
 This keeps the FFI small while preserving a stable top-level JSONL schema in Rust.
 
-## Backend Selection
+## Failure Model
 
-The current configuration includes an explicit backend section:
+The pipeline tries to preserve one record per requested file, even when analysis fails:
 
-- `[backend].name = "essentia"`
-- `[backend].name = "mpeg7"`
+- backend call failures become records with an error `status`
+- backend payload parse failures become records with an error `status`
+- file-level failures are surfaced on `stderr` in batch mode and remain visible in JSONL output
+- unsupported requested descriptors are omitted and reported through warnings rather than being renamed or approximated
 
-Today:
+This is intentional. The tool is meant for corpus work, where partial completion with explicit failures is usually more useful than an aborted whole-run result.
 
-- `essentia` is the real working native backend path
-- `mpeg7` is wired through config, CLI, pipeline dispatch, and provenance, but still lacks a linked native implementation
+## Backend Surface
+
+The only supported public backend today is Essentia:
+
+- config uses `[backend].name = "essentia"`
+- the façade crate exists so the rest of the workspace does not depend directly on raw native details
+- no alternative backend is exposed publicly at the moment
 
 ## Current Known Gaps
 
 - the `schema` block exists but is still reserved rather than fully populated
 - the `file` block currently uses baseline identity fields instead of canonical paths and content hashes
+- persistent cross-run caching is not implemented yet; today the repository has file identity primitives and skip-logic benchmarking groundwork, not a finished cache layer
+- the config and model accept the full allowed aggregation vocabulary, but the current native Essentia path only supports `mean`
 - the current native backend is validated locally on macOS; Linux and Windows native validation remain open work
 - the current backend omits some requested descriptors with warnings instead of approximating them

@@ -17,6 +17,24 @@ The shared Rust code is written to remain platform-neutral where practical:
 - CLI behavior is consistent across platforms where the backend is available
 - JSONL storage is independent of platform-specific file formats
 
+## CI Scope
+
+The default GitHub Actions workflow is manual-only via `workflow_dispatch`.
+
+It currently runs:
+
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+
+on:
+
+- macOS
+- Windows
+- Linux
+
+This CI deliberately validates the Rust-only workspace. It does not claim that the native Essentia backend is reproducible on generic CI yet.
+
 ## macOS
 
 Current status:
@@ -24,7 +42,6 @@ Current status:
 - the native backend has been exercised locally on macOS
 - the build script links the C++ wrapper and `Accelerate`
 - local development currently assumes an Essentia installation reachable through `ESSENTIA_PREFIX` or `/tmp/essentia-install`
-- the new backend-aware Rust path also knows about `mpeg7`, but there is no macOS MPEG-7 native wrapper linked yet
 
 Universal-binary strategy:
 
@@ -47,7 +64,6 @@ Current Linux native TODOs:
 - validate the build against a real packaged or locally built Essentia install
 - document required system packages more precisely once a reference environment is fixed
 - add a native smoke job only after the environment can be reproduced reliably
-- choose and integrate a real Linux-side MPEG-7 backend implementation before claiming Linux MPEG-7 support
 
 ## Windows
 
@@ -63,7 +79,6 @@ Current Windows native TODOs:
 - document how Essentia and its dependencies are built or installed on Windows
 - add Windows-specific linker/runtime handling in the native build path where required
 - revisit the UTF-8-only `const char*` path boundary if Windows path behavior demands a different representation
-- choose and integrate a real Windows-side MPEG-7 backend implementation before claiming Windows MPEG-7 support
 
 ## CI And Release Realism
 

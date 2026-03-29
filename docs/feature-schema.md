@@ -17,6 +17,63 @@ Records are serialized with deterministic top-level ordering:
 
 The top-level blocks always exist, even when some inner blocks are sparse.
 
+Representative shape:
+
+```json
+{
+  "schema": {},
+  "file": {
+    "path": "/abs/or/input/path.wav",
+    "relative_path": "path.wav",
+    "identity": {
+      "modified_unix_nanos": 0,
+      "size_bytes": 0
+    }
+  },
+  "audio": {},
+  "analysis": {
+    "backend": "essentia",
+    "profile": "default",
+    "frame_level": false,
+    "requested_families": ["spectral"],
+    "requested_features": ["centroid"],
+    "aggregation_statistics": ["mean"]
+  },
+  "features": {
+    "spectral": {},
+    "temporal": {},
+    "rhythm": {},
+    "tonal": {},
+    "dynamics": {},
+    "metadata": {},
+    "frame_level": null
+  },
+  "aggregation": {
+    "spectral": {
+      "centroid": {
+        "mean": 123.0
+      }
+    },
+    "temporal": {},
+    "rhythm": {},
+    "tonal": {},
+    "dynamics": {},
+    "metadata": {}
+  },
+  "provenance": {
+    "backend": "essentia",
+    "boundary": "json_string",
+    "backend_version": "..."
+  },
+  "status": {
+    "code": "ok",
+    "success": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
 ## Current Implemented Blocks
 
 `schema`
@@ -31,6 +88,7 @@ The top-level blocks always exist, even when some inner blocks are sparse.
 - `relative_path`
 - `identity.modified_unix_nanos`
 - `identity.size_bytes`
+- canonical path and content hash are not implemented yet
 
 `audio`
 
@@ -45,6 +103,7 @@ The top-level blocks always exist, even when some inner blocks are sparse.
 - `requested_families`
 - `requested_features`
 - `aggregation_statistics`
+- analysis timestamp is not implemented yet
 
 `features`
 
@@ -56,7 +115,8 @@ The top-level blocks always exist, even when some inner blocks are sparse.
 
 - nested structure `family -> feature -> statistic`
 - vector-valued statistics remain arrays
-- current implementation supports `mean` as the serialized statistic
+- the record model supports the full allowed statistic set
+- the current native Essentia backend emits `mean` only
 
 `provenance`
 
@@ -69,6 +129,7 @@ The top-level blocks always exist, even when some inner blocks are sparse.
 - backend- or pipeline-provided status details
 - usually includes `code`, `success`, `warnings`, and `errors`
 - may also include `message` for Rust-side orchestration failures
+- failed analyses still produce records, which is useful for corpus-scale runs
 
 ## Aggregation Naming
 
@@ -91,3 +152,10 @@ Unsupported descriptors are omitted. They are not renamed, approximated, or flat
 ## Current Coverage Caveat
 
 The controlled vocabulary is broader than the set of descriptors the current `MusicExtractor` wrapper emits. Requested but unsupported descriptors remain absent from `features` and `aggregation`, and the backend reports warnings instead of silently fabricating values.
+
+## Current Implementation Gaps Against The Target Spec
+
+- `schema` is reserved but still sparse
+- `file` does not yet include canonical path or optional fingerprint fields
+- `analysis` does not yet include an analysis timestamp
+- full aggregation vocabulary is modeled, but the native backend still operates on `mean` only

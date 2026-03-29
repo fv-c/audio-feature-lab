@@ -2,7 +2,7 @@
 
 The repository includes a benchmark suite that separates always-available Rust-side measurements from feature-gated native Essentia measurements.
 
-Run the current suite with:
+Run the Rust-side suite with:
 
 ```sh
 cargo bench -p audio-feature-lab-core --bench phase9
@@ -31,6 +31,7 @@ cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/aud
 - Rust-only benchmark groups require only the normal Rust workspace
 - native groups require `--features native-backend` and a local Essentia installation visible through `ESSENTIA_PREFIX` or the `/tmp/essentia-install` fallback used by this repository
 - benchmark numbers are only comparable when the same backend availability, build profile, and local machine conditions are preserved
+- for operationally accurate native runs today, keep `aggregation.statistics = ["mean"]`
 
 ## What is measured now
 

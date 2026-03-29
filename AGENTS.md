@@ -26,4 +26,14 @@ Follow docs/agent/execution-plan.md
 - Prefer streaming design everywhere
 - Keep Rust/native boundary minimal and measurable
 - Before changing code, read AGENTS.md and the referenced docs. Then implement only the requested phase. 
-- At the end modify always the README.md file.
+- Treat `audio-feature-lab` as a finished tool, not as an internal prototype.
+- Documentation updates are part of the definition of done.
+- Any user-visible change must update documentation organically:
+  - always update `README.md`
+  - update every affected file under `docs/` in the same turn when behavior, commands, schema, platform support, performance guidance, or limitations change
+  - update usage examples, caveats, and cross-links when commands, config, output, or native setup change
+  - remove stale statements instead of letting docs drift behind the implementation
+- Documentation must describe the current tool clearly and soberly:
+  - explain how to use it, what it supports today, and what remains unsupported
+  - write as operator/developer documentation for a supported tool, not as scratch notes, roadmap fragments, or speculative text
+  - do not describe experimental or partial work as if it were production-ready

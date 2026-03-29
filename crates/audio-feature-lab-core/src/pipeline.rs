@@ -743,20 +743,17 @@ mod tests {
     }
 
     #[test]
-    fn records_selected_mpeg7_backend_in_analysis_and_provenance() {
+    fn records_selected_backend_in_analysis_and_provenance() {
         let temp_dir = TestDir::new();
         let path = temp_dir.path().join("track.wav");
         write_file(&path, b"audio");
 
-        let mut config = LabConfig::load_default().expect("default config");
-        config.backend.name = BackendName::Mpeg7;
-
         let pipeline = Pipeline::new(
-            config,
+            LabConfig::load_default().expect("default config"),
             Walker::default(),
             FakeBackend::new(
-                BackendName::Mpeg7,
-                "mpeg7-test",
+                BackendName::Essentia,
+                "essentia-test",
                 vec![Ok(success_payload().to_string())],
             ),
         )
@@ -764,11 +761,11 @@ mod tests {
 
         let record = pipeline.process_file(&path).expect("file should process");
 
-        assert_eq!(record.analysis.fields["backend"], json!("mpeg7"));
-        assert_eq!(record.provenance.fields["backend"], json!("mpeg7"));
+        assert_eq!(record.analysis.fields["backend"], json!("essentia"));
+        assert_eq!(record.provenance.fields["backend"], json!("essentia"));
         assert_eq!(
             record.provenance.fields["backend_version"],
-            json!("mpeg7-test")
+            json!("essentia-test")
         );
     }
 
