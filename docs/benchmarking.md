@@ -36,6 +36,7 @@ cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/aud
 - relative Rust-side overhead for `minimal`, `default`, and `research`
 - end-to-end native single-file cost for `minimal`, `default`, and `research` when `native-backend` is enabled
 - end-to-end native batch scan cost with streaming sink writes when `native-backend` is enabled
+- bounded-worker batch comparisons on both the Rust-only and native benchmark paths
 
 ## What is not claimed yet
 
@@ -62,6 +63,7 @@ For native end-to-end benchmarks, the generated corpus uses real `.wav` copies o
 - `skip_logic` measures the baseline unchanged-file detection policy the future cache layer will use
 - `pipeline_single_file_native` measures one real Essentia-backed analysis call plus Rust-side record construction
 - `pipeline_batch_native` measures real scan-to-analysis streaming throughput against the native backend
+- `pipeline_batch_workers` and `pipeline_batch_native_workers` compare bounded worker counts instead of assuming parallelism is always a win
 
 ## Optimization Loop
 
@@ -73,3 +75,5 @@ Use the benchmark suite as part of the required loop:
 4. compare results before making broader claims
 
 This suite is intentionally explicit about scope: the Rust-only groups stay available everywhere, while the native groups measure the actual local Essentia integration path without claiming unsupported descriptors or cross-platform parity that has not been validated yet.
+
+The current local optimization loop also showed that higher worker counts can regress throughput on the native Essentia path. See `docs/performance.md` before changing built-in worker defaults.

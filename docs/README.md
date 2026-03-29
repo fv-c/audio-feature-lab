@@ -4,3 +4,7 @@
 
 Future project-facing documentation should extend this directory without overriding the constraints defined in `docs/agent/`.
 
+Current project-facing documents:
+
+- `benchmarking.md`
+- `performance.md`

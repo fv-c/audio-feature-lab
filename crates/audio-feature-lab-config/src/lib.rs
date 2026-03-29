@@ -309,6 +309,12 @@ pub struct LabConfig {
     pub profile: Profile,
     pub features: FeaturesConfig,
     pub aggregation: AggregationConfig,
+    pub performance: PerformanceConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerformanceConfig {
+    pub workers: usize,
 }
 
 impl LabConfig {
@@ -371,10 +377,20 @@ impl LabConfig {
             (None, None) => return Err(ConfigError::MissingSection("aggregation")),
         };
 
+        let performance = match (
+            raw.performance,
+            base.as_ref().map(|config| &config.performance),
+        ) {
+            (Some(raw_performance), _) => validate_performance(raw_performance)?,
+            (None, Some(performance)) => performance.clone(),
+            (None, None) => PerformanceConfig { workers: 1 },
+        };
+
         Ok(Self {
             profile,
             features,
             aggregation,
+            performance,
         })
     }
 }
@@ -391,6 +407,7 @@ struct RawLabConfig {
     profile: String,
     features: Option<RawFeaturesConfig>,
     aggregation: Option<RawAggregationConfig>,
+    performance: Option<RawPerformanceConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -405,6 +422,12 @@ struct RawFeaturesConfig {
 #[serde(deny_unknown_fields)]
 struct RawAggregationConfig {
     statistics: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPerformanceConfig {
+    workers: usize,
 }
 
 fn parse_raw(source: &str) -> Result<RawLabConfig, ConfigError> {
@@ -466,6 +489,16 @@ fn validate_aggregation(raw: RawAggregationConfig) -> Result<AggregationConfig, 
     }
 
     Ok(AggregationConfig { statistics })
+}
+
+fn validate_performance(raw: RawPerformanceConfig) -> Result<PerformanceConfig, ConfigError> {
+    if raw.workers == 0 {
+        return Err(ConfigError::InvalidWorkers(0));
+    }
+
+    Ok(PerformanceConfig {
+        workers: raw.workers,
+    })
 }
 
 fn validate_profile_constraints(
@@ -598,6 +631,7 @@ pub enum ConfigError {
         profile: Profile,
         message: String,
     },
+    InvalidWorkers(usize),
 }
 
 impl fmt::Display for ConfigError {
@@ -627,6 +661,9 @@ impl fmt::Display for ConfigError {
             Self::ProfileConstraint { profile, message } => {
                 write!(f, "profile `{}` is invalid: {message}", profile.as_str())
             }
+            Self::InvalidWorkers(workers) => {
+                write!(f, "`performance.workers` must be at least 1, got {workers}")
+            }
         }
     }
 }
@@ -644,7 +681,8 @@ impl Error for ConfigError {
             | Self::UnknownFeature(_)
             | Self::UnknownAggregationStatistic(_)
             | Self::FeatureOutsideSelectedFamilies { .. }
-            | Self::ProfileConstraint { .. } => None,
+            | Self::ProfileConstraint { .. }
+            | Self::InvalidWorkers(_) => None,
         }
     }
 }
@@ -666,6 +704,7 @@ mod tests {
             vec![AggregationStatistic::Mean]
         );
         assert!(!config.features.frame_level);
+        assert_eq!(config.performance.workers, 1);
     }
 
     #[test]
@@ -679,6 +718,7 @@ mod tests {
                 config.aggregation.statistics,
                 vec![AggregationStatistic::Mean]
             );
+            assert_eq!(config.performance.workers, 1);
         }
     }
 
@@ -698,6 +738,7 @@ mod tests {
             config.aggregation.statistics,
             vec![AggregationStatistic::Mean]
         );
+        assert_eq!(config.performance.workers, 1);
     }
 
     #[test]
@@ -942,6 +983,54 @@ statistics = ["mean"]
         .expect("config should load");
 
         assert!(!config.features.frame_level);
+        assert_eq!(config.performance.workers, 1);
+    }
+
+    #[test]
+    fn parses_performance_workers_when_present() {
+        let config = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+
+[performance]
+workers = 3
+"#,
+        )
+        .expect("config should load");
+
+        assert_eq!(config.performance.workers, 3);
+    }
+
+    #[test]
+    fn rejects_zero_workers() {
+        let error = LabConfig::from_str(
+            r#"
+profile = "minimal"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+
+[performance]
+workers = 0
+"#,
+        )
+        .expect_err("workers must be positive");
+
+        assert_eq!(
+            error.to_string(),
+            "`performance.workers` must be at least 1, got 0"
+        );
     }
 
     #[test]

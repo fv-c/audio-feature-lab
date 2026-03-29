@@ -1,9 +1,10 @@
 use std::env;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Instant;
 
 use audio_feature_lab_config::LabConfig;
 use audio_feature_lab_core::domain::AnalysisRecord;
@@ -365,7 +366,9 @@ where
         Ok(sink) => sink,
         Err(code) => return code,
     };
-    let mut sink = CountingSink::new(sink);
+    let progress =
+        TerminalProgress::maybe_new(stderr, if metadata.is_file() { Some(1) } else { None });
+    let mut sink = CountingSink::new(sink, progress);
 
     let result = if metadata.is_file() {
         pipeline.process_batch([path], &mut sink)
@@ -376,10 +379,14 @@ where
         return 1;
     };
 
-    match result.and_then(|_| {
+    let outcome = result.and_then(|_| {
         sink.flush()
             .map_err(audio_feature_lab_core::pipeline::PipelineError::Storage)
-    }) {
+    });
+    sink.finish_progress();
+    sink.write_summary(stderr);
+
+    match outcome {
         Ok(_) => {
             if sink.error_records > 0 {
                 1
@@ -478,6 +485,7 @@ fn handle_validate_config<WOut: Write, WErr: Write>(
             let _ = writeln!(stdout, "config is valid");
             let _ = writeln!(stdout, "profile: {}", config.profile.as_str());
             let _ = writeln!(stdout, "frame_level: {}", config.features.frame_level);
+            let _ = writeln!(stdout, "workers: {}", config.performance.workers);
             let _ = writeln!(
                 stdout,
                 "feature_families: {}",
@@ -609,6 +617,14 @@ fn write_help<W: Write>(stdout: &mut W, program: &str) -> io::Result<()> {
     writeln!(stdout, "  - frame-level extraction is disabled by default")?;
     writeln!(
         stdout,
+        "  - batch uses bounded workers from `[performance].workers`, clamped to available CPUs"
+    )?;
+    writeln!(
+        stdout,
+        "  - interactive batch progress and final batch summaries with failed-file details are rendered on stderr and do not alter JSONL output"
+    )?;
+    writeln!(
+        stdout,
         "  - `minimal` forbids vector features; `research` is required for `spectral_peaks`"
     )?;
     Ok(())
@@ -655,28 +671,285 @@ impl<W: Write> RecordSink for OutputSink<'_, W> {
 
 struct CountingSink<S> {
     inner: S,
+    processed_records: usize,
     error_records: usize,
+    failed_records: Vec<FailedRecord>,
+    progress: Option<TerminalProgress>,
 }
 
 impl<S> CountingSink<S> {
-    fn new(inner: S) -> Self {
+    fn new(inner: S, progress: Option<TerminalProgress>) -> Self {
         Self {
             inner,
+            processed_records: 0,
             error_records: 0,
+            failed_records: Vec::new(),
+            progress,
+        }
+    }
+
+    fn finish_progress(&mut self) {
+        if let Some(progress) = self.progress.as_mut() {
+            progress.finish();
+        }
+    }
+
+    fn write_summary<W: Write>(&self, stderr: &mut W) {
+        let ok_records = self.processed_records.saturating_sub(self.error_records);
+        let _ = writeln!(
+            stderr,
+            "summary: processed {} file(s), ok {}, error {}",
+            self.processed_records, ok_records, self.error_records
+        );
+
+        const MAX_FAILED_RECORDS: usize = 10;
+        for failed in self.failed_records.iter().take(MAX_FAILED_RECORDS) {
+            match &failed.message {
+                Some(message) if !message.is_empty() => {
+                    let _ = writeln!(
+                        stderr,
+                        "failed: {} [{}] {}",
+                        failed.path, failed.code, message
+                    );
+                }
+                _ => {
+                    let _ = writeln!(stderr, "failed: {} [{}]", failed.path, failed.code);
+                }
+            }
+        }
+
+        if self.failed_records.len() > MAX_FAILED_RECORDS {
+            let remaining = self.failed_records.len() - MAX_FAILED_RECORDS;
+            let _ = writeln!(stderr, "failed: ... and {remaining} more");
         }
     }
 }
 
 impl<S: RecordSink> RecordSink for CountingSink<S> {
     fn write_record(&mut self, record: &AnalysisRecord) -> Result<(), StorageError> {
-        if !record_status_is_ok(record) {
+        let ok = record_status_is_ok(record);
+        self.processed_records += 1;
+        if !ok {
             self.error_records += 1;
+            self.failed_records.push(FailedRecord {
+                path: record_display_path(record),
+                code: record_status_code(record).to_string(),
+                message: record_status_message(record),
+            });
         }
-        self.inner.write_record(record)
+        self.inner.write_record(record)?;
+        if let Some(progress) = self.progress.as_mut() {
+            progress.on_record(ok);
+        }
+        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), StorageError> {
         self.inner.flush()
+    }
+}
+
+struct FailedRecord {
+    path: String,
+    code: String,
+    message: Option<String>,
+}
+
+struct TerminalProgress {
+    total: Option<usize>,
+    processed: usize,
+    error_records: usize,
+    tick: usize,
+    start: Instant,
+    stderr: io::Stderr,
+    finished: bool,
+    last_line_len: usize,
+}
+
+impl TerminalProgress {
+    fn maybe_new<W: Write>(_stderr: &mut W, total: Option<usize>) -> Option<Self> {
+        let stderr = io::stderr();
+        if !stderr.is_terminal() {
+            return None;
+        }
+
+        let mut progress = Self {
+            total,
+            processed: 0,
+            error_records: 0,
+            tick: 0,
+            start: Instant::now(),
+            stderr,
+            finished: false,
+            last_line_len: 0,
+        };
+        progress.render();
+        Some(progress)
+    }
+
+    fn on_record(&mut self, ok: bool) {
+        self.processed += 1;
+        if !ok {
+            self.error_records += 1;
+        }
+        self.tick += 1;
+        self.render();
+    }
+
+    fn finish(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        let elapsed = self.start.elapsed().as_secs_f32();
+        let line = format_progress_line(
+            self.total,
+            self.processed,
+            self.error_records,
+            self.tick,
+            Some(elapsed),
+        );
+        self.write_line(&line, true);
+    }
+
+    fn render(&mut self) {
+        let elapsed = self.start.elapsed().as_secs_f32();
+        let line = format_progress_line(
+            self.total,
+            self.processed,
+            self.error_records,
+            self.tick,
+            Some(elapsed),
+        );
+        self.write_line(&line, false);
+    }
+
+    fn write_line(&mut self, line: &str, finished: bool) {
+        let padding = self.last_line_len.saturating_sub(line.len());
+        let mut stderr = self.stderr.lock();
+        let _ = write!(stderr, "\r{line}{}", " ".repeat(padding));
+        if finished {
+            let _ = writeln!(stderr);
+        }
+        let _ = stderr.flush();
+        self.last_line_len = line.len();
+    }
+}
+
+fn format_progress_line(
+    total: Option<usize>,
+    processed: usize,
+    error_records: usize,
+    tick: usize,
+    elapsed_seconds: Option<f32>,
+) -> String {
+    let ok_records = processed.saturating_sub(error_records);
+    let rate = elapsed_seconds
+        .filter(|elapsed| *elapsed > 0.0)
+        .map(|elapsed| processed as f32 / elapsed);
+
+    let mut line = match total {
+        Some(total) => {
+            let bar = render_determinate_bar(processed, total, 24);
+            let percent = if total == 0 {
+                100usize
+            } else {
+                (processed.min(total) * 100) / total
+            };
+            format!(
+                "[{bar}] {processed}/{total} file(s) ({percent:>3}%) | ok {ok_records} | err {error_records}"
+            )
+        }
+        None => {
+            let spinner = spinner_frame(tick);
+            format!("[{spinner}] {processed} file(s) | ok {ok_records} | err {error_records}")
+        }
+    };
+
+    if let Some(elapsed_seconds) = elapsed_seconds {
+        line.push_str(&format!(" | {elapsed_seconds:.1}s"));
+        if let Some(rate) = rate {
+            line.push_str(&format!(" | {rate:.2} file/s"));
+        }
+    }
+
+    line
+}
+
+fn record_status_code(record: &AnalysisRecord) -> &str {
+    record
+        .status
+        .fields
+        .get("code")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+}
+
+fn record_display_path(record: &AnalysisRecord) -> String {
+    if let Some(path) = record
+        .file
+        .fields
+        .get("relative_path")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return path.to_string();
+    }
+
+    record
+        .file
+        .fields
+        .get("path")
+        .and_then(|value| value.as_str())
+        .unwrap_or("<unknown>")
+        .to_string()
+}
+
+fn record_status_message(record: &AnalysisRecord) -> Option<String> {
+    if let Some(message) = record
+        .status
+        .fields
+        .get("message")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+    {
+        return Some(message.to_string());
+    }
+
+    record
+        .status
+        .fields
+        .get("errors")
+        .and_then(|value| value.as_array())
+        .and_then(|errors| {
+            errors.iter().find_map(|value| {
+                value
+                    .as_str()
+                    .filter(|message| !message.is_empty())
+                    .map(|message| message.to_string())
+            })
+        })
+}
+
+fn render_determinate_bar(processed: usize, total: usize, width: usize) -> String {
+    if total == 0 {
+        return " ".repeat(width);
+    }
+
+    let filled = (processed.min(total) * width) / total;
+    let mut bar = String::with_capacity(width);
+    for index in 0..width {
+        bar.push(if index < filled { '#' } else { '-' });
+    }
+    bar
+}
+
+fn spinner_frame(tick: usize) -> char {
+    match tick % 4 {
+        0 => '-',
+        1 => '\\',
+        2 => '|',
+        _ => '/',
     }
 }
 
@@ -730,11 +1003,9 @@ mod tests {
         );
 
         assert_eq!(code, 0);
-        assert!(
-            String::from_utf8(stdout)
-                .unwrap()
-                .contains("profile: default")
-        );
+        let output = String::from_utf8(stdout).unwrap();
+        assert!(output.contains("profile: default"));
+        assert!(output.contains("workers: 1"));
         assert!(stderr.is_empty());
     }
 
@@ -756,6 +1027,79 @@ mod tests {
         assert!(output.contains("\"schema\""));
         assert!(output.contains("\"aggregation\""));
         assert!(String::from_utf8(stderr).unwrap().contains("frame_level"));
+    }
+
+    #[test]
+    fn formats_progress_line_without_total() {
+        let line = super::format_progress_line(None, 3, 1, 2, Some(4.0));
+        assert!(line.contains("3 file(s)"));
+        assert!(line.contains("ok 2"));
+        assert!(line.contains("err 1"));
+        assert!(line.contains("0.75 file/s"));
+    }
+
+    #[test]
+    fn formats_progress_line_with_total_and_elapsed() {
+        let line = super::format_progress_line(Some(4), 2, 0, 1, Some(12.3));
+        assert!(line.contains("2/4 file(s)"));
+        assert!(line.contains("( 50%)"));
+        assert!(line.contains("ok 2"));
+        assert!(line.contains("12.3s"));
+    }
+
+    #[test]
+    fn uses_relative_path_for_failed_record_summary_when_available() {
+        let mut record = audio_feature_lab_core::domain::AnalysisRecord::default();
+        record
+            .file
+            .fields
+            .insert("path".to_string(), serde_json::json!("/abs/path/file.wav"));
+        record.file.fields.insert(
+            "relative_path".to_string(),
+            serde_json::json!("nested/file.wav"),
+        );
+        record
+            .status
+            .fields
+            .insert("code".to_string(), serde_json::json!("backend_error"));
+        record
+            .status
+            .fields
+            .insert("message".to_string(), serde_json::json!("decoder failed"));
+
+        assert_eq!(super::record_display_path(&record), "nested/file.wav");
+        assert_eq!(super::record_status_code(&record), "backend_error");
+        assert_eq!(
+            super::record_status_message(&record),
+            Some("decoder failed".to_string())
+        );
+    }
+
+    #[test]
+    fn falls_back_to_absolute_path_for_failed_record_summary() {
+        let mut record = audio_feature_lab_core::domain::AnalysisRecord::default();
+        record
+            .file
+            .fields
+            .insert("path".to_string(), serde_json::json!("/abs/path/file.wav"));
+
+        assert_eq!(super::record_display_path(&record), "/abs/path/file.wav");
+        assert_eq!(super::record_status_code(&record), "unknown");
+        assert_eq!(super::record_status_message(&record), None);
+    }
+
+    #[test]
+    fn falls_back_to_first_status_error_when_message_is_missing() {
+        let mut record = audio_feature_lab_core::domain::AnalysisRecord::default();
+        record.status.fields.insert(
+            "errors".to_string(),
+            serde_json::json!(["decoder failed", "secondary detail"]),
+        );
+
+        assert_eq!(
+            super::record_status_message(&record),
+            Some("decoder failed".to_string())
+        );
     }
 
     #[test]

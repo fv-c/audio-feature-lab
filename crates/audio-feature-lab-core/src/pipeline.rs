@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 
 use audio_feature_lab_config::LabConfig;
 use serde::Deserialize;
@@ -65,33 +68,41 @@ impl<B: Backend> Pipeline<B> {
         P: AsRef<Path>,
         S: RecordSink,
     {
-        let mut stats = PipelineStats::default();
-
-        for path in paths {
-            let record = self.process_file(path.as_ref())?;
-            sink.write_record(&record).map_err(PipelineError::Storage)?;
-            stats.processed_files += 1;
-            stats.written_records += 1;
-        }
-
-        Ok(stats)
+        self.process_jobs(
+            paths.into_iter().enumerate().map(|(index, path)| {
+                let path = path.as_ref().to_path_buf();
+                let identity = FileIdentity::from_path(&path).map_err(PipelineError::Walk)?;
+                Ok(AnalysisJob {
+                    index,
+                    path,
+                    relative_path: None,
+                    identity,
+                })
+            }),
+            sink,
+        )
     }
 
     pub fn process_scan<S>(&self, root: &Path, sink: &mut S) -> Result<PipelineStats, PipelineError>
     where
         S: RecordSink,
     {
-        let mut stats = PipelineStats::default();
-
-        for entry in self.walker.walk(root).map_err(PipelineError::Walk)? {
-            let walked_file = entry.map_err(PipelineError::Walk)?;
-            let record = self.process_walked_file(&walked_file)?;
-            sink.write_record(&record).map_err(PipelineError::Storage)?;
-            stats.processed_files += 1;
-            stats.written_records += 1;
-        }
-
-        Ok(stats)
+        self.process_jobs(
+            self.walker
+                .walk(root)
+                .map_err(PipelineError::Walk)?
+                .enumerate()
+                .map(|(index, entry)| {
+                    let walked_file = entry.map_err(PipelineError::Walk)?;
+                    Ok(AnalysisJob {
+                        index,
+                        path: walked_file.path,
+                        relative_path: Some(walked_file.relative_path),
+                        identity: walked_file.identity,
+                    })
+                }),
+            sink,
+        )
     }
 
     pub fn process_walked_file(
@@ -149,6 +160,161 @@ impl<B: Backend> Pipeline<B> {
             status,
         })
     }
+
+    fn process_job(&self, job: AnalysisJob) -> Result<AnalysisRecord, PipelineError> {
+        self.process_entry(&job.path, job.relative_path.as_deref(), job.identity)
+    }
+
+    fn effective_worker_count(&self) -> usize {
+        let configured = self.config.performance.workers.max(1);
+        std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get().min(configured))
+            .unwrap_or(configured)
+            .max(1)
+    }
+
+    fn process_jobs<I, S>(&self, jobs: I, sink: &mut S) -> Result<PipelineStats, PipelineError>
+    where
+        I: IntoIterator<Item = Result<AnalysisJob, PipelineError>>,
+        S: RecordSink,
+    {
+        if self.effective_worker_count() <= 1 {
+            return self.process_jobs_sequential(jobs, sink);
+        }
+
+        self.process_jobs_parallel(jobs, sink)
+    }
+
+    fn process_jobs_sequential<I, S>(
+        &self,
+        jobs: I,
+        sink: &mut S,
+    ) -> Result<PipelineStats, PipelineError>
+    where
+        I: IntoIterator<Item = Result<AnalysisJob, PipelineError>>,
+        S: RecordSink,
+    {
+        let mut stats = PipelineStats::default();
+
+        for job in jobs {
+            let record = self.process_job(job?)?;
+            sink.write_record(&record).map_err(PipelineError::Storage)?;
+            stats.processed_files += 1;
+            stats.written_records += 1;
+        }
+
+        Ok(stats)
+    }
+
+    fn process_jobs_parallel<I, S>(
+        &self,
+        jobs: I,
+        sink: &mut S,
+    ) -> Result<PipelineStats, PipelineError>
+    where
+        I: IntoIterator<Item = Result<AnalysisJob, PipelineError>>,
+        S: RecordSink,
+    {
+        let worker_count = self.effective_worker_count();
+        let queue_capacity = worker_count.saturating_mul(2).max(1);
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        std::thread::scope(|scope| -> Result<PipelineStats, PipelineError> {
+            let (job_tx, job_rx) = mpsc::sync_channel::<AnalysisJob>(queue_capacity);
+            let job_rx = Arc::new(Mutex::new(job_rx));
+            let (result_tx, result_rx) = mpsc::channel::<JobResult>();
+
+            for _ in 0..worker_count {
+                let job_rx = Arc::clone(&job_rx);
+                let result_tx = result_tx.clone();
+                let cancel = Arc::clone(&cancel);
+
+                scope.spawn(move || {
+                    loop {
+                        if cancel.load(Ordering::Relaxed) {
+                            break;
+                        }
+
+                        let job = {
+                            let receiver = job_rx.lock().expect("job receiver should lock");
+                            receiver.recv()
+                        };
+
+                        let Ok(job) = job else {
+                            break;
+                        };
+                        let index = job.index;
+                        let record = self.process_job(job);
+
+                        if result_tx.send(JobResult { index, record }).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(result_tx);
+
+            let mut stats = PipelineStats::default();
+            let mut next_to_write = 0usize;
+            let mut pending = BTreeMap::new();
+            let mut dispatched = 0usize;
+            let mut received = 0usize;
+
+            for job in jobs {
+                let job = match job {
+                    Ok(job) => job,
+                    Err(error) => {
+                        cancel.store(true, Ordering::Relaxed);
+                        drop(job_tx);
+                        return Err(error);
+                    }
+                };
+
+                if job_tx.send(job).is_err() {
+                    cancel.store(true, Ordering::Relaxed);
+                    return Err(PipelineError::Parallel(
+                        "worker channel closed before all jobs were dispatched".to_string(),
+                    ));
+                }
+                dispatched += 1;
+
+                if let Err(error) = drain_ready_results(
+                    &result_rx,
+                    &mut pending,
+                    &mut next_to_write,
+                    sink,
+                    &mut stats,
+                    &mut received,
+                ) {
+                    cancel.store(true, Ordering::Relaxed);
+                    drop(job_tx);
+                    return Err(error);
+                }
+            }
+            drop(job_tx);
+
+            for _ in received..dispatched {
+                let result = result_rx.recv().map_err(|_| {
+                    PipelineError::Parallel(
+                        "worker threads stopped before returning all records".to_string(),
+                    )
+                })?;
+                if let Err(error) = queue_result(
+                    result,
+                    &mut pending,
+                    &mut next_to_write,
+                    sink,
+                    &mut stats,
+                    &mut received,
+                ) {
+                    cancel.store(true, Ordering::Relaxed);
+                    return Err(error);
+                }
+            }
+
+            Ok(stats)
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -157,7 +323,7 @@ pub struct PipelineStats {
     pub written_records: usize,
 }
 
-pub trait Backend {
+pub trait Backend: Send + Sync {
     fn backend_version(&self) -> Result<String, BackendCallError>;
     fn analyze_file(&self, path: &Path, config_json: &str) -> Result<String, BackendCallError>;
 }
@@ -207,6 +373,7 @@ pub enum PipelineError {
     ConfigSerialization(serde_json::Error),
     Walk(WalkError),
     Storage(StorageError),
+    Parallel(String),
 }
 
 impl fmt::Display for PipelineError {
@@ -217,6 +384,7 @@ impl fmt::Display for PipelineError {
             }
             Self::Walk(error) => write!(f, "{error}"),
             Self::Storage(error) => write!(f, "{error}"),
+            Self::Parallel(message) => f.write_str(message),
         }
     }
 }
@@ -227,6 +395,7 @@ impl Error for PipelineError {
             Self::ConfigSerialization(error) => Some(error),
             Self::Walk(error) => Some(error),
             Self::Storage(error) => Some(error),
+            Self::Parallel(_) => None,
         }
     }
 }
@@ -238,6 +407,74 @@ struct BackendPayload {
     features: FeaturesBlock,
     aggregation: Aggregation,
     status: StatusBlock,
+}
+
+#[derive(Debug)]
+struct AnalysisJob {
+    index: usize,
+    path: PathBuf,
+    relative_path: Option<PathBuf>,
+    identity: FileIdentity,
+}
+
+#[derive(Debug)]
+struct JobResult {
+    index: usize,
+    record: Result<AnalysisRecord, PipelineError>,
+}
+
+fn drain_ready_results<S>(
+    result_rx: &mpsc::Receiver<JobResult>,
+    pending: &mut BTreeMap<usize, Result<AnalysisRecord, PipelineError>>,
+    next_to_write: &mut usize,
+    sink: &mut S,
+    stats: &mut PipelineStats,
+    received: &mut usize,
+) -> Result<(), PipelineError>
+where
+    S: RecordSink,
+{
+    while let Ok(result) = result_rx.try_recv() {
+        queue_result(result, pending, next_to_write, sink, stats, received)?;
+    }
+
+    Ok(())
+}
+
+fn queue_result<S>(
+    result: JobResult,
+    pending: &mut BTreeMap<usize, Result<AnalysisRecord, PipelineError>>,
+    next_to_write: &mut usize,
+    sink: &mut S,
+    stats: &mut PipelineStats,
+    received: &mut usize,
+) -> Result<(), PipelineError>
+where
+    S: RecordSink,
+{
+    *received += 1;
+    pending.insert(result.index, result.record);
+    flush_ready_results(pending, next_to_write, sink, stats)
+}
+
+fn flush_ready_results<S>(
+    pending: &mut BTreeMap<usize, Result<AnalysisRecord, PipelineError>>,
+    next_to_write: &mut usize,
+    sink: &mut S,
+    stats: &mut PipelineStats,
+) -> Result<(), PipelineError>
+where
+    S: RecordSink,
+{
+    while let Some(record) = pending.remove(next_to_write) {
+        let record = record?;
+        sink.write_record(&record).map_err(PipelineError::Storage)?;
+        stats.processed_files += 1;
+        stats.written_records += 1;
+        *next_to_write += 1;
+    }
+
+    Ok(())
 }
 
 impl StatusBlock {
@@ -374,6 +611,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use audio_feature_lab_config::LabConfig;
@@ -547,6 +785,46 @@ mod tests {
         assert_eq!(relative_paths, vec!["keep.wav", "nested/also.FLAC"]);
     }
 
+    #[test]
+    fn parallel_batch_preserves_input_order() {
+        let temp_dir = TestDir::new();
+        let first = temp_dir.path().join("a.wav");
+        let second = temp_dir.path().join("b.wav");
+        let third = temp_dir.path().join("c.wav");
+        write_file(&first, b"a");
+        write_file(&second, b"b");
+        write_file(&third, b"c");
+
+        let mut config = LabConfig::load_default().expect("default config");
+        config.performance.workers = 2;
+
+        let pipeline = Pipeline::new(config, Walker::default(), SlowPathBackend)
+            .expect("pipeline should build");
+
+        let mut sink = CollectingSink::default();
+        pipeline
+            .process_batch(
+                [first.as_path(), second.as_path(), third.as_path()],
+                &mut sink,
+            )
+            .expect("batch should process");
+
+        let written = sink
+            .records
+            .iter()
+            .map(|record| record.file.fields["path"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            written,
+            vec![
+                first.to_string_lossy().to_string(),
+                second.to_string_lossy().to_string(),
+                third.to_string_lossy().to_string(),
+            ]
+        );
+    }
+
     #[derive(Debug)]
     struct FakeBackend {
         backend_version: String,
@@ -582,6 +860,30 @@ mod tests {
                 .expect("responses should lock")
                 .pop_front()
                 .expect("fake backend response should exist")
+        }
+    }
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct SlowPathBackend;
+
+    impl Backend for SlowPathBackend {
+        fn backend_version(&self) -> Result<String, BackendCallError> {
+            Ok("essentia-test".to_string())
+        }
+
+        fn analyze_file(
+            &self,
+            path: &Path,
+            _config_json: &str,
+        ) -> Result<String, BackendCallError> {
+            let delay_ms = match path.file_name().and_then(|name| name.to_str()) {
+                Some("a.wav") => 40,
+                Some("b.wav") => 5,
+                Some("c.wav") => 1,
+                _ => 0,
+            };
+            thread::sleep(std::time::Duration::from_millis(delay_ms));
+            Ok(success_payload().to_string())
         }
     }
 

@@ -119,6 +119,45 @@ fn bench_pipeline_batch(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_pipeline_batch_workers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline_batch_workers");
+    let corpus = BenchmarkCorpus::new(CorpusShape::Nested {
+        levels: 3,
+        dirs_per_level: 3,
+        files_per_dir: 18,
+        hidden_files_per_dir: 1,
+    });
+
+    for workers in [1usize, 2usize] {
+        let mut config =
+            LabConfig::from_profile(Profile::Default).expect("default config should load");
+        config.performance.workers = workers;
+        let payload = backend_payload_for_config(&config);
+        let pipeline = Pipeline::new(
+            config,
+            Walker::new(default_extensions()),
+            StaticBackend::new("bench-backend", &payload),
+        )
+        .expect("pipeline should build");
+
+        group.throughput(Throughput::Elements(corpus.expected_matches() as u64));
+        group.bench_function(
+            BenchmarkId::new("process_scan_default_profile", workers),
+            |b| {
+                b.iter(|| {
+                    let mut sink = NullSink;
+                    let stats = pipeline
+                        .process_scan(corpus.root(), &mut sink)
+                        .expect("scan should process");
+                    black_box(stats)
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 fn bench_jsonl(c: &mut Criterion) {
     let mut group = c.benchmark_group("jsonl");
     let fixture = FixtureFile::copy_named("short-stereo-44k.wav");
@@ -225,15 +264,47 @@ fn bench_native_pipeline_batch(c: &mut Criterion) {
 }
 
 #[cfg(feature = "native-backend")]
+fn bench_native_pipeline_batch_workers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline_batch_native_workers");
+    let corpus = NativeBenchmarkCorpus::new(8);
+
+    for workers in [1usize, 2usize] {
+        let mut config =
+            LabConfig::from_profile(Profile::Default).expect("default config should load");
+        config.performance.workers = workers;
+        let pipeline = Pipeline::with_native_backend(config, Walker::new(default_extensions()))
+            .expect("native pipeline should build");
+
+        group.throughput(Throughput::Elements(corpus.file_count() as u64));
+        group.bench_function(
+            BenchmarkId::new("process_scan_default_profile", workers),
+            |b| {
+                b.iter(|| {
+                    let mut sink = NullSink;
+                    let stats = pipeline
+                        .process_scan(corpus.root(), &mut sink)
+                        .expect("native scan should process");
+                    black_box(stats)
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+#[cfg(feature = "native-backend")]
 criterion_group!(
     benches,
     bench_walker,
     bench_pipeline_single_file,
     bench_pipeline_batch,
+    bench_pipeline_batch_workers,
     bench_jsonl,
     bench_skip_logic,
     bench_native_pipeline_single_file,
-    bench_native_pipeline_batch
+    bench_native_pipeline_batch,
+    bench_native_pipeline_batch_workers
 );
 #[cfg(not(feature = "native-backend"))]
 criterion_group!(
@@ -241,6 +312,7 @@ criterion_group!(
     bench_walker,
     bench_pipeline_single_file,
     bench_pipeline_batch,
+    bench_pipeline_batch_workers,
     bench_jsonl,
     bench_skip_logic
 );

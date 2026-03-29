@@ -2,7 +2,7 @@
 
 Production-grade, performance-oriented Rust workspace for large-scale audio feature extraction with Essentia as backend.
 
-Current state: workspace scaffold, validated config system, domain/JSON output model, filesystem walker with file identity baseline, a real feature-gated Essentia native boundary, a streaming core pipeline, append-friendly JSONL storage, a sober CLI surface, and a Criterion-based benchmark suite covering both Rust-side costs and feature-gated native end-to-end paths.
+Current state: workspace scaffold, validated config system, domain/JSON output model, filesystem walker with file identity baseline, a real feature-gated Essentia native boundary, a streaming core pipeline with bounded-worker batch support, append-friendly JSONL storage, a sober CLI surface, and a Criterion-based benchmark suite covering both Rust-side costs and feature-gated native end-to-end paths.
 
 ## Workspace
 
@@ -17,11 +17,12 @@ Current state: workspace scaffold, validated config system, domain/JSON output m
 - `configs/*.toml`: minimal, default, and research example profile files
 - `fixtures/audio/*.wav`: lightweight benchmark and test seed inputs
 - `docs/benchmarking.md`: benchmark scope, commands, and interpretation notes
+- `docs/performance.md`: current bottlenecks, concurrency strategy, and measured optimization-loop results
 - `docs/agent`: authoritative project constraints and execution plan
 
 ## Scope
 
-The repository now includes the workspace scaffold, typed profile configuration, a deterministic JSON record model for analysis output, a recursive filesystem walker with metadata-based file identity, a narrow native Essentia backend that keeps the FFI at a single JSON-string-per-file contract, a streaming pipeline that processes files one by one into JSONL-ready records, an append-friendly JSONL storage layer with line-by-line validation helpers, a sober CLI that exposes single-file analysis, batch analysis, dry-run scanning, backend inspection, schema inspection, and config validation, and a benchmark suite that measures the Rust-side walker, pipeline, JSONL, skip-policy, and profile-overhead behavior.
+The repository now includes the workspace scaffold, typed profile configuration, a deterministic JSON record model for analysis output, a recursive filesystem walker with metadata-based file identity, a narrow native Essentia backend that keeps the FFI at a single JSON-string-per-file contract, a streaming pipeline that processes files one by one into JSONL-ready records, a bounded-worker batch/scan path that preserves output order while keeping memory bounded, an append-friendly JSONL storage layer with line-by-line validation helpers, a sober CLI that exposes single-file analysis, batch analysis, dry-run scanning, backend inspection, schema inspection, and config validation, interactive batch progress and final batch summaries with failed-file status codes and backend error detail on `stderr` when available, and a benchmark suite that measures the Rust-side walker, pipeline, JSONL, skip-policy, and profile-overhead behavior.
 
 ## Native backend
 
@@ -44,6 +45,7 @@ Current native backend behavior:
 - deterministic JSON payload returned across the FFI boundary
 - explicit warnings for requested features that the current backend does not emit yet
 - `frame_level = true` is supported for the subset of descriptors that `MusicExtractor` exposes as frame sequences; unsupported frame-level descriptors remain omitted with warnings
+- batch worker count is configurable through `[performance].workers`, but built-in profile configs keep `workers = 1` because the current local Essentia setup regressed at higher counts during measurement
 
 Current supported aggregated features include:
 

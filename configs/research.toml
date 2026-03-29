@@ -36,3 +36,6 @@ frame_level = false
 
 [aggregation]
 statistics = ["mean"]
+
+[performance]
+workers = 1
