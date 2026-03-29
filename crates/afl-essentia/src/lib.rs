@@ -141,6 +141,7 @@ mod tests {
 
     use super::{BackendError, analyze_file, backend_version};
 
+    #[cfg(not(feature = "native-backend"))]
     #[test]
     fn reports_unavailable_backend_without_native_feature() {
         let error = backend_version().expect_err("backend should be unavailable");
@@ -159,5 +160,49 @@ mod tests {
         let error =
             analyze_file(Path::new("ok.wav"), "{\0}").expect_err("config_json should be rejected");
         assert!(matches!(error, BackendError::ConfigJsonContainsNul(_)));
+    }
+
+    #[cfg(feature = "native-backend")]
+    #[test]
+    fn reports_real_backend_version_with_native_feature() {
+        let version = backend_version().expect("native backend should be available");
+        assert!(version.contains("essentia"));
+        assert!(!version.contains("unconfigured"));
+    }
+
+    #[cfg(feature = "native-backend")]
+    #[test]
+    fn analyzes_real_fixture_with_partial_or_better_status() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
+        let config = r#"{"profile":"default","features":{"families":["spectral","rhythm","tonal","dynamics","metadata"],"enabled":["centroid","spread","rolloff","flux","flatness","entropy","hfc","mfcc","tempo","beat_period","onset_strength","hpcp","chroma","key_strength","tuning_frequency","loudness","dynamic_complexity","duration","silence_ratio","active_ratio"],"frame_level":false},"aggregation":{"statistics":["mean"]}}"#;
+
+        let response =
+            analyze_file(&fixture, config).expect("native backend should analyze fixture");
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("backend response must be valid JSON");
+
+        assert_eq!(payload["status"]["success"], serde_json::Value::Bool(true));
+        assert!(payload["aggregation"]["spectral"]["centroid"]["mean"].is_number());
+        assert!(payload["aggregation"]["tonal"]["hpcp"]["mean"].is_array());
+    }
+
+    #[cfg(feature = "native-backend")]
+    #[test]
+    fn rejects_frame_level_requests_explicitly() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
+        let config = r#"{"profile":"research","features":{"families":["spectral"],"enabled":["centroid"],"frame_level":true},"aggregation":{"statistics":["mean"]}}"#;
+
+        let response =
+            analyze_file(&fixture, config).expect("native backend should return a JSON error");
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("backend response must be valid JSON");
+
+        assert_eq!(payload["status"]["success"], serde_json::Value::Bool(false));
+        assert_eq!(
+            payload["status"]["code"],
+            serde_json::Value::String("unsupported_frame_level".to_string())
+        );
     }
 }

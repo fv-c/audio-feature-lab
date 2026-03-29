@@ -12,3 +12,5 @@ native-backend = ["afl-essentia-sys/native-backend"]
 [dependencies]
 afl-essentia-sys = { path = "../afl-essentia-sys" }
 
+[dev-dependencies]
+serde_json = "1.0.145"

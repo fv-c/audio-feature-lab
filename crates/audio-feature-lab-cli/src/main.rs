@@ -615,6 +615,15 @@ fn write_help<W: Write>(stdout: &mut W, program: &str) -> io::Result<()> {
 }
 
 fn record_status_is_ok(record: &AnalysisRecord) -> bool {
+    if let Some(success) = record
+        .status
+        .fields
+        .get("success")
+        .and_then(|value| value.as_bool())
+    {
+        return success;
+    }
+
     record
         .status
         .fields
@@ -779,6 +788,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "native-backend"))]
     #[test]
     fn analyze_smoke_test_emits_error_record_when_backend_is_unavailable() {
         let temp_dir = TestDir::new();
@@ -803,6 +813,32 @@ mod tests {
         assert!(stderr.is_empty());
     }
 
+    #[cfg(feature = "native-backend")]
+    #[test]
+    fn analyze_smoke_test_emits_real_record_with_native_backend() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = super::run(
+            [
+                OsString::from("audio-feature-lab"),
+                OsString::from("analyze"),
+                fixture.into_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, 0);
+        let output = String::from_utf8(stdout).unwrap();
+        assert!(output.contains("\"audio\":{\"channels\":2"));
+        assert!(output.contains("\"status\":{\"code\":\"partial\""));
+        assert!(stderr.is_empty());
+    }
+
+    #[cfg(not(feature = "native-backend"))]
     #[test]
     fn backend_info_smoke_test() {
         let mut stdout = Vec::new();
@@ -820,6 +856,28 @@ mod tests {
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("backend: essentia"));
         assert!(output.contains("status: unavailable"));
+        assert!(stderr.is_empty());
+    }
+
+    #[cfg(feature = "native-backend")]
+    #[test]
+    fn backend_info_smoke_test_reports_available_backend() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = super::run(
+            [
+                OsString::from("audio-feature-lab"),
+                OsString::from("backend-info"),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, 0);
+        let output = String::from_utf8(stdout).unwrap();
+        assert!(output.contains("backend: essentia"));
+        assert!(output.contains("status: available"));
+        assert!(output.contains("version: essentia"));
         assert!(stderr.is_empty());
     }
 

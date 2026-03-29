@@ -9,3 +9,6 @@ publish = false
 default = []
 native-backend = []
 
+[build-dependencies]
+cmake = "0.1.54"
+pkg-config = "0.3.32"
