@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-use audio_feature_lab_config::LabConfig;
+use audio_feature_lab_config::{BackendName, LabConfig};
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
@@ -26,8 +26,12 @@ pub struct Pipeline<B = NativeBackend> {
 }
 
 impl Pipeline<NativeBackend> {
-    pub fn with_native_backend(config: LabConfig, walker: Walker) -> Result<Self, PipelineError> {
-        Self::new(config, walker, NativeBackend)
+    pub fn with_configured_backend(
+        config: LabConfig,
+        walker: Walker,
+    ) -> Result<Self, PipelineError> {
+        let backend = NativeBackend::new(config.backend.name);
+        Self::new(config, walker, backend)
     }
 }
 
@@ -156,7 +160,10 @@ impl<B: Backend> Pipeline<B> {
             analysis: build_analysis_block(&self.config),
             features,
             aggregation,
-            provenance: build_provenance_block(self.backend_version.as_deref()),
+            provenance: build_provenance_block(
+                self.backend.backend_name(),
+                self.backend_version.as_deref(),
+            ),
             status,
         })
     }
@@ -293,7 +300,7 @@ impl<B: Backend> Pipeline<B> {
             }
             drop(job_tx);
 
-            for _ in received..dispatched {
+            while received < dispatched {
                 let result = result_rx.recv().map_err(|_| {
                     PipelineError::Parallel(
                         "worker threads stopped before returning all records".to_string(),
@@ -324,20 +331,34 @@ pub struct PipelineStats {
 }
 
 pub trait Backend: Send + Sync {
+    fn backend_name(&self) -> BackendName;
     fn backend_version(&self) -> Result<String, BackendCallError>;
     fn analyze_file(&self, path: &Path, config_json: &str) -> Result<String, BackendCallError>;
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NativeBackend;
+#[derive(Debug, Clone, Copy)]
+pub struct NativeBackend {
+    name: BackendName,
+}
+
+impl NativeBackend {
+    pub fn new(name: BackendName) -> Self {
+        Self { name }
+    }
+}
 
 impl Backend for NativeBackend {
+    fn backend_name(&self) -> BackendName {
+        self.name
+    }
+
     fn backend_version(&self) -> Result<String, BackendCallError> {
-        audio_feature_lab_ffi::backend_version().map_err(BackendCallError::from)
+        audio_feature_lab_ffi::backend_version(self.name).map_err(BackendCallError::from)
     }
 
     fn analyze_file(&self, path: &Path, config_json: &str) -> Result<String, BackendCallError> {
-        audio_feature_lab_ffi::analyze_file(path, config_json).map_err(BackendCallError::from)
+        audio_feature_lab_ffi::analyze_file(self.name, path, config_json)
+            .map_err(BackendCallError::from)
     }
 }
 
@@ -496,6 +517,9 @@ impl StatusBlock {
 fn serialize_backend_config(config: &LabConfig) -> Result<String, PipelineError> {
     let value = json!({
         "profile": config.profile.as_str(),
+        "backend": {
+            "name": config.backend.name.as_str(),
+        },
         "features": {
             "families": config.features.families.iter().map(|family| family.as_str()).collect::<Vec<_>>(),
             "enabled": config.features.enabled.iter().map(|feature| feature.as_str()).collect::<Vec<_>>(),
@@ -542,6 +566,10 @@ fn build_file_block(
 fn build_analysis_block(config: &LabConfig) -> AnalysisBlock {
     let mut fields = OrderedJsonObject::new();
     fields.insert(
+        "backend".to_string(),
+        JsonValue::String(config.backend.name.as_str().to_string()),
+    );
+    fields.insert(
         "profile".to_string(),
         JsonValue::String(config.profile.as_str().to_string()),
     );
@@ -585,11 +613,14 @@ fn build_analysis_block(config: &LabConfig) -> AnalysisBlock {
     AnalysisBlock { fields }
 }
 
-fn build_provenance_block(backend_version: Option<&str>) -> ProvenanceBlock {
+fn build_provenance_block(
+    backend_name: BackendName,
+    backend_version: Option<&str>,
+) -> ProvenanceBlock {
     let mut fields = OrderedJsonObject::new();
     fields.insert(
         "backend".to_string(),
-        JsonValue::String("essentia".to_string()),
+        JsonValue::String(backend_name.as_str().to_string()),
     );
     fields.insert(
         "boundary".to_string(),
@@ -614,7 +645,7 @@ mod tests {
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use audio_feature_lab_config::LabConfig;
+    use audio_feature_lab_config::{BackendName, LabConfig};
     use serde_json::json;
 
     use crate::storage::RecordSink;
@@ -632,6 +663,7 @@ mod tests {
         write_file(&path, b"audio");
 
         let backend = FakeBackend::new(
+            BackendName::Essentia,
             "essentia-test",
             vec![Ok(json!({
                 "audio": {"sample_rate": 44100, "channels": 2},
@@ -668,6 +700,7 @@ mod tests {
             record.file.fields["path"],
             json!(path.to_string_lossy().to_string())
         );
+        assert_eq!(record.analysis.fields["backend"], json!("essentia"));
         assert_eq!(record.analysis.fields["profile"], json!("default"));
         assert_eq!(record.provenance.fields["backend"], json!("essentia"));
         assert_eq!(
@@ -689,6 +722,7 @@ mod tests {
             LabConfig::load_default().expect("default config"),
             Walker::default(),
             FakeBackend::new(
+                BackendName::Essentia,
                 "essentia-test",
                 vec![Err("backend unavailable".to_string())],
             ),
@@ -709,6 +743,36 @@ mod tests {
     }
 
     #[test]
+    fn records_selected_mpeg7_backend_in_analysis_and_provenance() {
+        let temp_dir = TestDir::new();
+        let path = temp_dir.path().join("track.wav");
+        write_file(&path, b"audio");
+
+        let mut config = LabConfig::load_default().expect("default config");
+        config.backend.name = BackendName::Mpeg7;
+
+        let pipeline = Pipeline::new(
+            config,
+            Walker::default(),
+            FakeBackend::new(
+                BackendName::Mpeg7,
+                "mpeg7-test",
+                vec![Ok(success_payload().to_string())],
+            ),
+        )
+        .expect("pipeline should build");
+
+        let record = pipeline.process_file(&path).expect("file should process");
+
+        assert_eq!(record.analysis.fields["backend"], json!("mpeg7"));
+        assert_eq!(record.provenance.fields["backend"], json!("mpeg7"));
+        assert_eq!(
+            record.provenance.fields["backend_version"],
+            json!("mpeg7-test")
+        );
+    }
+
+    #[test]
     fn processes_batch_without_accumulating_in_pipeline() {
         let temp_dir = TestDir::new();
         let first = temp_dir.path().join("a.wav");
@@ -720,6 +784,7 @@ mod tests {
             LabConfig::load_default().expect("default config"),
             Walker::default(),
             FakeBackend::new(
+                BackendName::Essentia,
                 "essentia-test",
                 vec![
                     Ok(success_payload().to_string()),
@@ -755,6 +820,7 @@ mod tests {
             LabConfig::load_default().expect("default config"),
             Walker::new(WalkerConfig::default().with_extensions(["wav", "flac"])),
             FakeBackend::new(
+                BackendName::Essentia,
                 "essentia-test",
                 vec![
                     Ok(success_payload().to_string()),
@@ -827,13 +893,19 @@ mod tests {
 
     #[derive(Debug)]
     struct FakeBackend {
+        backend_name: BackendName,
         backend_version: String,
         responses: std::sync::Mutex<VecDeque<Result<String, BackendCallError>>>,
     }
 
     impl FakeBackend {
-        fn new(backend_version: &str, responses: Vec<Result<String, String>>) -> Self {
+        fn new(
+            backend_name: BackendName,
+            backend_version: &str,
+            responses: Vec<Result<String, String>>,
+        ) -> Self {
             Self {
+                backend_name,
                 backend_version: backend_version.to_string(),
                 responses: std::sync::Mutex::new(
                     responses
@@ -846,6 +918,10 @@ mod tests {
     }
 
     impl Backend for FakeBackend {
+        fn backend_name(&self) -> BackendName {
+            self.backend_name
+        }
+
         fn backend_version(&self) -> Result<String, BackendCallError> {
             Ok(self.backend_version.clone())
         }
@@ -867,6 +943,10 @@ mod tests {
     struct SlowPathBackend;
 
     impl Backend for SlowPathBackend {
+        fn backend_name(&self) -> BackendName {
+            BackendName::Essentia
+        }
+
         fn backend_version(&self) -> Result<String, BackendCallError> {
             Ok("essentia-test".to_string())
         }

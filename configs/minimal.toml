@@ -1,5 +1,8 @@
 profile = "minimal"
 
+[backend]
+name = "essentia"
+
 [features]
 families = ["spectral", "temporal", "dynamics", "metadata"]
 enabled = [

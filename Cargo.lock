@@ -73,6 +73,7 @@ name = "audio-feature-lab-ffi"
 version = "0.1.0"
 dependencies = [
  "afl-essentia",
+ "audio-feature-lab-config",
 ]
 
 [[package]]

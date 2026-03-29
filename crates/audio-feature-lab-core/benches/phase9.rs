@@ -5,7 +5,7 @@ use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use audio_feature_lab_config::{FeatureFamily, FeatureName, LabConfig, Profile};
+use audio_feature_lab_config::{BackendName, FeatureFamily, FeatureName, LabConfig, Profile};
 use audio_feature_lab_core::domain::AnalysisRecord;
 use audio_feature_lab_core::pipeline::{Backend, BackendCallError, Pipeline};
 use audio_feature_lab_core::storage::{JsonlWriter, RecordSink, StorageError};
@@ -226,7 +226,7 @@ fn bench_native_pipeline_single_file(c: &mut Criterion) {
         ("research", Profile::Research),
     ] {
         let config = LabConfig::from_profile(profile).expect("profile config should load");
-        let pipeline = Pipeline::with_native_backend(config, walker.clone())
+        let pipeline = Pipeline::with_configured_backend(config, walker.clone())
             .expect("native pipeline should build");
 
         group.bench_function(label, |b| {
@@ -247,7 +247,7 @@ fn bench_native_pipeline_batch(c: &mut Criterion) {
     let mut group = c.benchmark_group("pipeline_batch_native");
     let corpus = NativeBenchmarkCorpus::new(12);
     let config = LabConfig::from_profile(Profile::Default).expect("default config should load");
-    let pipeline = Pipeline::with_native_backend(config, Walker::new(default_extensions()))
+    let pipeline = Pipeline::with_configured_backend(config, Walker::new(default_extensions()))
         .expect("native pipeline should build");
 
     group.throughput(Throughput::Elements(corpus.file_count() as u64));
@@ -272,7 +272,7 @@ fn bench_native_pipeline_batch_workers(c: &mut Criterion) {
         let mut config =
             LabConfig::from_profile(Profile::Default).expect("default config should load");
         config.performance.workers = workers;
-        let pipeline = Pipeline::with_native_backend(config, Walker::new(default_extensions()))
+        let pipeline = Pipeline::with_configured_backend(config, Walker::new(default_extensions()))
             .expect("native pipeline should build");
 
         group.throughput(Throughput::Elements(corpus.file_count() as u64));
@@ -326,8 +326,10 @@ fn count_walked_files(walker: &Walker, root: &Path) -> usize {
     walker
         .walk(root)
         .expect("walker should open corpus")
-        .map(|entry| entry.expect("entry should be readable"))
-        .count()
+        .fold(0, |count, entry| {
+            let _ = entry.expect("entry should be readable");
+            count + 1
+        })
 }
 
 fn previous_snapshot(count: usize) -> BTreeMap<PathBuf, FileIdentity> {
@@ -482,6 +484,10 @@ impl StaticBackend {
 }
 
 impl Backend for StaticBackend {
+    fn backend_name(&self) -> BackendName {
+        BackendName::Essentia
+    }
+
     fn backend_version(&self) -> Result<String, BackendCallError> {
         Ok(self.backend_version.clone())
     }

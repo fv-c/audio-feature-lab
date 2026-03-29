@@ -298,7 +298,7 @@ where
         }
     };
 
-    let pipeline = match Pipeline::with_native_backend(config, default_cli_walker()) {
+    let pipeline = match Pipeline::with_configured_backend(config, default_cli_walker()) {
         Ok(pipeline) => pipeline,
         Err(error) => {
             let _ = writeln!(stderr, "error: {error}");
@@ -354,7 +354,7 @@ where
         }
     };
 
-    let pipeline = match Pipeline::with_native_backend(config, default_cli_walker()) {
+    let pipeline = match Pipeline::with_configured_backend(config, default_cli_walker()) {
         Ok(pipeline) => pipeline,
         Err(error) => {
             let _ = writeln!(stderr, "error: {error}");
@@ -443,17 +443,25 @@ where
 }
 
 fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
-    match audio_feature_lab_ffi::backend_version() {
-        Ok(version) => {
-            let _ = writeln!(stdout, "backend: essentia");
-            let _ = writeln!(stdout, "status: available");
+    for backend in audio_feature_lab_ffi::known_backends() {
+        let status = audio_feature_lab_ffi::backend_status(*backend);
+        let _ = writeln!(stdout, "backend: {}", backend.as_str());
+        let _ = writeln!(
+            stdout,
+            "status: {}",
+            if status.available {
+                "available"
+            } else {
+                "unavailable"
+            }
+        );
+        if let Some(version) = status.version {
             let _ = writeln!(stdout, "version: {version}");
         }
-        Err(error) => {
-            let _ = writeln!(stdout, "backend: essentia");
-            let _ = writeln!(stdout, "status: unavailable");
-            let _ = writeln!(stdout, "detail: {error}");
+        if let Some(detail) = status.detail {
+            let _ = writeln!(stdout, "detail: {detail}");
         }
+        let _ = writeln!(stdout);
     }
     0
 }
@@ -484,6 +492,7 @@ fn handle_validate_config<WOut: Write, WErr: Write>(
         Ok(config) => {
             let _ = writeln!(stdout, "config is valid");
             let _ = writeln!(stdout, "profile: {}", config.profile.as_str());
+            let _ = writeln!(stdout, "backend: {}", config.backend.name.as_str());
             let _ = writeln!(stdout, "frame_level: {}", config.features.frame_level);
             let _ = writeln!(stdout, "workers: {}", config.performance.workers);
             let _ = writeln!(
@@ -613,6 +622,10 @@ fn write_help<W: Write>(stdout: &mut W, program: &str) -> io::Result<()> {
     writeln!(
         stdout,
         "  - default profile is `default` when no config is provided"
+    )?;
+    writeln!(
+        stdout,
+        "  - backend selection lives in `[backend].name`; shipped configs use `essentia`"
     )?;
     writeln!(stdout, "  - frame-level extraction is disabled by default")?;
     writeln!(
@@ -1005,6 +1018,7 @@ mod tests {
         assert_eq!(code, 0);
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("profile: default"));
+        assert!(output.contains("backend: essentia"));
         assert!(output.contains("workers: 1"));
         assert!(stderr.is_empty());
     }
@@ -1200,6 +1214,8 @@ mod tests {
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("backend: essentia"));
         assert!(output.contains("status: unavailable"));
+        assert!(output.contains("backend: mpeg7"));
+        assert!(output.contains("mpeg7 backend is unavailable"));
         assert!(stderr.is_empty());
     }
 
@@ -1222,6 +1238,8 @@ mod tests {
         assert!(output.contains("backend: essentia"));
         assert!(output.contains("status: available"));
         assert!(output.contains("version: essentia"));
+        assert!(output.contains("backend: mpeg7"));
+        assert!(output.contains("mpeg7 backend is unavailable"));
         assert!(stderr.is_empty());
     }
 

@@ -11,3 +11,4 @@ native-backend = ["afl-essentia/native-backend"]
 
 [dependencies]
 afl-essentia = { path = "../afl-essentia" }
+audio-feature-lab-config = { path = "../audio-feature-lab-config" }

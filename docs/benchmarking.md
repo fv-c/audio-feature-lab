@@ -1,6 +1,6 @@
 # Benchmarking
 
-The repository includes a Phase 9 benchmark suite that separates always-available Rust-side measurements from feature-gated native Essentia measurements.
+The repository includes a benchmark suite that separates always-available Rust-side measurements from feature-gated native Essentia measurements.
 
 Run the current suite with:
 
@@ -26,6 +26,12 @@ Local native analysis is also available directly with:
 cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/audio/short-stereo-44k.wav
 ```
 
+## Preconditions
+
+- Rust-only benchmark groups require only the normal Rust workspace
+- native groups require `--features native-backend` and a local Essentia installation visible through `ESSENTIA_PREFIX` or the `/tmp/essentia-install` fallback used by this repository
+- benchmark numbers are only comparable when the same backend availability, build profile, and local machine conditions are preserved
+
 ## What is measured now
 
 - walker throughput on flat and nested corpora
@@ -46,7 +52,7 @@ cargo run -p audio-feature-lab --features native-backend -- analyze fixtures/aud
 
 The native benchmarks are real, but they only measure descriptors that the current `MusicExtractor`-based backend actually returns. Unsupported descriptors remain omitted with warnings and must not be inferred from these numbers.
 
-## Fixture Strategy
+## Fixtures
 
 The benchmark harness uses small non-silent repository fixtures under `fixtures/audio/` and expands them into temporary corpora during benchmark setup. This keeps the scenarios reproducible without storing a large benchmark corpus in git.
 
@@ -67,7 +73,7 @@ For native end-to-end benchmarks, the generated corpus uses real `.wav` copies o
 
 ## Optimization Loop
 
-Use the benchmark suite as part of the required loop:
+Use the benchmark suite as part of the repository optimization loop:
 
 1. establish a baseline with the current branch
 2. change one bottleneck candidate at a time

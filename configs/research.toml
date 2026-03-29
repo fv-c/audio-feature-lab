@@ -1,5 +1,8 @@
 profile = "research"
 
+[backend]
+name = "essentia"
+
 [features]
 families = ["spectral", "rhythm", "tonal", "dynamics", "metadata"]
 enabled = [

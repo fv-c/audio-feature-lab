@@ -2,6 +2,16 @@
 
 This repository treats performance as a first-class engineering constraint.
 
+## Implemented Strategy
+
+- stream records directly to JSONL sinks instead of accumulating the corpus in memory
+- serialize backend config once per pipeline instance
+- cache `backend_version()` once per pipeline instance
+- prefer one native call per file over chatty per-descriptor or per-frame FFI
+- keep batch concurrency bounded and clamp it to `available_parallelism()`
+- preserve output order while writing records progressively on the main thread
+- keep expensive payloads opt-in, especially frame-level output
+
 ## Current Cost Centers
 
 - the native Essentia call dominates end-to-end analysis time
@@ -30,6 +40,13 @@ That result means higher worker counts are not a safe default on the current nat
 - treat native extraction cost as the main optimization target before micro-optimizing Rust-side serialization
 - enable frame-level output only when needed, because it increases payload size and backend work
 - keep unsupported descriptors omitted rather than approximated, even if that leaves some profiles partially fulfilled
+
+## What Has Not Been Measured Yet
+
+- Windows native benchmark baselines
+- Linux native benchmark baselines
+- resident memory figures for long native batch runs
+- end-to-end cost for descriptors that are still omitted by the current backend
 
 ## Next Bottlenecks To Attack
 

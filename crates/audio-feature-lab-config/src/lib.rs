@@ -40,6 +40,29 @@ impl Profile {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendName {
+    Essentia,
+    Mpeg7,
+}
+
+impl BackendName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Essentia => "essentia",
+            Self::Mpeg7 => "mpeg7",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, ConfigError> {
+        match value {
+            "essentia" => Ok(Self::Essentia),
+            "mpeg7" => Ok(Self::Mpeg7),
+            _ => Err(ConfigError::UnknownBackend(value.to_string())),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FeatureFamily {
     Spectral,
@@ -305,8 +328,14 @@ pub struct AggregationConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendConfig {
+    pub name: BackendName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabConfig {
     pub profile: Profile,
+    pub backend: BackendConfig,
     pub features: FeaturesConfig,
     pub aggregation: AggregationConfig,
     pub performance: PerformanceConfig,
@@ -340,10 +369,10 @@ impl LabConfig {
             error,
         })?;
 
-        Self::from_str(&source)
+        source.parse()
     }
 
-    pub fn from_str(source: &str) -> Result<Self, ConfigError> {
+    pub fn parse_str(source: &str) -> Result<Self, ConfigError> {
         let raw = parse_raw(source)?;
         Self::validate_raw(raw, ResolveProfileDefaults::Yes)
     }
@@ -354,10 +383,18 @@ impl LabConfig {
     ) -> Result<Self, ConfigError> {
         let profile = Profile::parse(&raw.profile)?;
         let base = match resolve_defaults {
-            ResolveProfileDefaults::Yes if raw.features.is_none() || raw.aggregation.is_none() => {
+            ResolveProfileDefaults::Yes
+                if raw.backend.is_none() || raw.features.is_none() || raw.aggregation.is_none() =>
+            {
                 Some(Self::from_profile(profile)?)
             }
             ResolveProfileDefaults::Yes | ResolveProfileDefaults::No => None,
+        };
+
+        let backend = match (raw.backend, base.as_ref().map(|config| &config.backend)) {
+            (Some(raw_backend), _) => validate_backend(raw_backend)?,
+            (None, Some(backend)) => backend.clone(),
+            (None, None) => return Err(ConfigError::MissingSection("backend")),
         };
 
         let features = match (raw.features, base.as_ref().map(|config| &config.features)) {
@@ -388,10 +425,19 @@ impl LabConfig {
 
         Ok(Self {
             profile,
+            backend,
             features,
             aggregation,
             performance,
         })
+    }
+}
+
+impl std::str::FromStr for LabConfig {
+    type Err = ConfigError;
+
+    fn from_str(source: &str) -> Result<Self, Self::Err> {
+        Self::parse_str(source)
     }
 }
 
@@ -405,9 +451,16 @@ enum ResolveProfileDefaults {
 #[serde(deny_unknown_fields)]
 struct RawLabConfig {
     profile: String,
+    backend: Option<RawBackendConfig>,
     features: Option<RawFeaturesConfig>,
     aggregation: Option<RawAggregationConfig>,
     performance: Option<RawPerformanceConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawBackendConfig {
+    name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -432,6 +485,12 @@ struct RawPerformanceConfig {
 
 fn parse_raw(source: &str) -> Result<RawLabConfig, ConfigError> {
     toml::from_str(source).map_err(ConfigError::TomlParse)
+}
+
+fn validate_backend(raw: RawBackendConfig) -> Result<BackendConfig, ConfigError> {
+    Ok(BackendConfig {
+        name: BackendName::parse(&raw.name)?,
+    })
 }
 
 fn validate_features(
@@ -620,6 +679,7 @@ pub enum ConfigError {
         value: String,
     },
     UnknownProfile(String),
+    UnknownBackend(String),
     UnknownFeatureFamily(String),
     UnknownFeature(String),
     UnknownAggregationStatistic(String),
@@ -647,6 +707,7 @@ impl fmt::Display for ConfigError {
                 write!(f, "duplicate value `{value}` in `{field}`")
             }
             Self::UnknownProfile(profile) => write!(f, "unknown profile `{profile}`"),
+            Self::UnknownBackend(backend) => write!(f, "unknown backend `{backend}`"),
             Self::UnknownFeatureFamily(family) => {
                 write!(f, "unknown feature family `{family}`")
             }
@@ -677,6 +738,7 @@ impl Error for ConfigError {
             | Self::EmptySelection(_)
             | Self::DuplicateValue { .. }
             | Self::UnknownProfile(_)
+            | Self::UnknownBackend(_)
             | Self::UnknownFeatureFamily(_)
             | Self::UnknownFeature(_)
             | Self::UnknownAggregationStatistic(_)
@@ -690,7 +752,8 @@ impl Error for ConfigError {
 #[cfg(test)]
 mod tests {
     use super::{
-        AggregationStatistic, ConfigError, FeatureFamily, FeatureName, LabConfig, Profile,
+        AggregationStatistic, BackendName, ConfigError, FeatureFamily, FeatureName, LabConfig,
+        Profile,
     };
 
     #[test]
@@ -698,6 +761,7 @@ mod tests {
         let config = LabConfig::load(None).expect("default config should load");
 
         assert_eq!(config.profile, Profile::Default);
+        assert_eq!(config.backend.name, BackendName::Essentia);
         assert!(config.features.enabled.contains(&FeatureName::Mfcc));
         assert_eq!(
             config.aggregation.statistics,
@@ -712,6 +776,7 @@ mod tests {
         for profile in [Profile::Minimal, Profile::Default, Profile::Research] {
             let config = LabConfig::from_profile(profile).expect("profile example should load");
             assert_eq!(config.profile, profile);
+            assert_eq!(config.backend.name, BackendName::Essentia);
             assert!(!config.features.families.is_empty());
             assert!(!config.features.enabled.is_empty());
             assert_eq!(
@@ -724,9 +789,10 @@ mod tests {
 
     #[test]
     fn custom_config_can_inherit_profile_defaults() {
-        let config = LabConfig::from_str("profile = \"minimal\"").expect("minimal profile");
+        let config = LabConfig::parse_str("profile = \"minimal\"").expect("minimal profile");
 
         assert_eq!(config.profile, Profile::Minimal);
+        assert_eq!(config.backend.name, BackendName::Essentia);
         assert!(
             !config
                 .features
@@ -743,7 +809,7 @@ mod tests {
 
     #[test]
     fn custom_feature_section_uses_default_aggregation_section() {
-        let config = LabConfig::from_str(
+        let config = LabConfig::parse_str(
             r#"
 profile = "default"
 
@@ -755,6 +821,7 @@ enabled = ["mfcc", "tempo", "hpcp"]
         .expect("default profile config should load");
 
         assert_eq!(config.profile, Profile::Default);
+        assert_eq!(config.backend.name, BackendName::Essentia);
         assert_eq!(
             config.features.families,
             vec![
@@ -772,14 +839,58 @@ enabled = ["mfcc", "tempo", "hpcp"]
 
     #[test]
     fn rejects_unknown_profile() {
-        let error = LabConfig::from_str("profile = \"fast\"").expect_err("invalid profile");
+        let error = LabConfig::parse_str("profile = \"fast\"").expect_err("invalid profile");
 
         assert_eq!(error.to_string(), "unknown profile `fast`");
     }
 
     #[test]
+    fn rejects_unknown_backend() {
+        let error = LabConfig::parse_str(
+            r#"
+profile = "minimal"
+
+[backend]
+name = "future-dsp"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("invalid backend");
+
+        assert_eq!(error.to_string(), "unknown backend `future-dsp`");
+    }
+
+    #[test]
+    fn parses_explicit_mpeg7_backend() {
+        let config = LabConfig::parse_str(
+            r#"
+profile = "minimal"
+
+[backend]
+name = "mpeg7"
+
+[features]
+families = ["spectral", "temporal", "dynamics", "metadata"]
+enabled = ["centroid", "zcr", "loudness", "duration"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect("mpeg7 backend should parse");
+
+        assert_eq!(config.backend.name, BackendName::Mpeg7);
+    }
+
+    #[test]
     fn rejects_unknown_feature_family() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -798,7 +909,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_unknown_feature() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -817,7 +928,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_feature_outside_selected_family() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "default"
 
@@ -839,7 +950,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_duplicate_statistics() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -861,7 +972,7 @@ statistics = ["mean", "mean"]
 
     #[test]
     fn rejects_unsupported_aggregation_statistic() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -880,7 +991,7 @@ statistics = ["median"]
 
     #[test]
     fn rejects_vector_features_in_minimal_profile() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -902,7 +1013,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_default_profile_without_mfcc() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "default"
 
@@ -924,7 +1035,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_spectral_peaks_outside_research() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "default"
 
@@ -946,7 +1057,7 @@ statistics = ["mean"]
 
     #[test]
     fn rejects_research_profile_without_required_extended_features() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "research"
 
@@ -968,7 +1079,7 @@ statistics = ["mean"]
 
     #[test]
     fn frame_level_defaults_to_false_when_omitted() {
-        let config = LabConfig::from_str(
+        let config = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -988,7 +1099,7 @@ statistics = ["mean"]
 
     #[test]
     fn parses_performance_workers_when_present() {
-        let config = LabConfig::from_str(
+        let config = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -1010,7 +1121,7 @@ workers = 3
 
     #[test]
     fn rejects_zero_workers() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
@@ -1035,7 +1146,7 @@ workers = 0
 
     #[test]
     fn toml_errors_are_contextual() {
-        let error = LabConfig::from_str(
+        let error = LabConfig::parse_str(
             r#"
 profile = "minimal"
 
