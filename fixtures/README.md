@@ -15,10 +15,11 @@ Benchmark note:
 
 - the Phase 9 benchmark harness may copy these WAV seed files under other audio extensions when it needs extension-filter and orchestration scenarios
 - that does not claim codec correctness for those renamed files
+- the native end-to-end benchmark groups copy only real `.wav` fixtures to avoid fake codec claims
 - real backend-dependent fixture expansion will need genuine per-format samples later
 
 Current limitation:
 
 - compressed-format fixtures are not yet included
-- the benchmark suite currently focuses on walker, storage, and Rust-side pipeline overhead
-- real backend-dependent corpus fixtures still need to be expanded across formats and platforms before end-to-end benchmark claims are made
+- native end-to-end benchmarks exist, but the fixture corpus is still WAV-only
+- real backend-dependent corpus fixtures still need to be expanded across formats and platforms before broader end-to-end benchmark claims are made

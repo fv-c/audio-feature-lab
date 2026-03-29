@@ -2,7 +2,7 @@
 
 Production-grade, performance-oriented Rust workspace for large-scale audio feature extraction with Essentia as backend.
 
-Current state: workspace scaffold, validated config system, domain/JSON output model, filesystem walker with file identity baseline, a real feature-gated Essentia native boundary, a streaming core pipeline, append-friendly JSONL storage, a sober CLI surface, and a Criterion-based benchmark suite for the Rust-side system.
+Current state: workspace scaffold, validated config system, domain/JSON output model, filesystem walker with file identity baseline, a real feature-gated Essentia native boundary, a streaming core pipeline, append-friendly JSONL storage, a sober CLI surface, and a Criterion-based benchmark suite covering both Rust-side costs and feature-gated native end-to-end paths.
 
 ## Workspace
 
@@ -43,7 +43,7 @@ Current native backend behavior:
 - one Essentia call per file via `MusicExtractor`
 - deterministic JSON payload returned across the FFI boundary
 - explicit warnings for requested features that the current backend does not emit yet
-- `frame_level = true` is rejected explicitly for now
+- `frame_level = true` is supported for the subset of descriptors that `MusicExtractor` exposes as frame sequences; unsupported frame-level descriptors remain omitted with warnings
 
 Current supported aggregated features include:
 
@@ -54,8 +54,15 @@ Current supported aggregated features include:
 - dynamics: `loudness`, `loudness_ebu`, `dynamic_complexity`
 - metadata: `duration`, `silence_ratio`, `active_ratio`
 
+Current supported frame-level features include:
+
+- spectral: `centroid`, `spread`, `skewness`, `kurtosis`, `rolloff`, `flux`, `energy`, `entropy`, `complexity`, `hfc`, `strong_peak`, `dissonance`, `mfcc`, `bark_bands`, `mel_bands`, `erb_bands`, `gfcc`
+- temporal: `zcr`, `rms`
+- tonal: `hpcp`, `chroma`
+- dynamics: `loudness_ebu`
+
 Current explicit limitations:
 
 - some requested features are still omitted with warnings rather than silently approximated, notably `flatness`, `onset_strength`, `contrast`, `inharmonicity`, and `spectral_peaks`
 - the native path has been validated locally on macOS; Windows and Linux still need their own native dependency passes
-- the benchmark suite in `crates/audio-feature-lab-core/benches/phase9.rs` is still focused on Rust-side cost, not full end-to-end Essentia throughput
+- native Criterion groups are now available behind `--features native-backend`, but they are environment-dependent and substantially slower than the Rust-only groups

@@ -189,20 +189,20 @@ mod tests {
 
     #[cfg(feature = "native-backend")]
     #[test]
-    fn rejects_frame_level_requests_explicitly() {
+    fn supports_frame_level_for_available_descriptors() {
         let fixture =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/audio/short-stereo-44k.wav");
-        let config = r#"{"profile":"research","features":{"families":["spectral"],"enabled":["centroid"],"frame_level":true},"aggregation":{"statistics":["mean"]}}"#;
+        let config = r#"{"profile":"research","features":{"families":["spectral","tonal","dynamics"],"enabled":["centroid","mfcc","hpcp","loudness_ebu"],"frame_level":true},"aggregation":{"statistics":["mean"]}}"#;
 
         let response =
-            analyze_file(&fixture, config).expect("native backend should return a JSON error");
+            analyze_file(&fixture, config).expect("native backend should analyze fixture");
         let payload: serde_json::Value =
             serde_json::from_str(&response).expect("backend response must be valid JSON");
 
-        assert_eq!(payload["status"]["success"], serde_json::Value::Bool(false));
-        assert_eq!(
-            payload["status"]["code"],
-            serde_json::Value::String("unsupported_frame_level".to_string())
-        );
+        assert_eq!(payload["status"]["success"], serde_json::Value::Bool(true));
+        assert!(payload["features"]["frame_level"]["spectral"]["centroid"].is_array());
+        assert!(payload["features"]["frame_level"]["spectral"]["mfcc"].is_array());
+        assert!(payload["features"]["frame_level"]["tonal"]["hpcp"].is_array());
+        assert!(payload["features"]["frame_level"]["dynamics"]["loudness_ebu"].is_array());
     }
 }

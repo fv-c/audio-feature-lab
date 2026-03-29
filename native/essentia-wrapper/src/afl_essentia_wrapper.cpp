@@ -24,6 +24,7 @@ namespace {
 using essentia::Pool;
 using essentia::Real;
 using FamilyMap = std::map<std::string, std::string>;
+using NestedMap = std::map<std::string, FamilyMap>;
 
 struct BackendConfig {
   std::string profile;
@@ -33,11 +34,13 @@ struct BackendConfig {
 };
 
 struct Payload {
-  std::map<std::string, FamilyMap> aggregation;
+  NestedMap aggregation;
+  NestedMap frame_level;
   std::vector<std::string> warnings;
   std::vector<std::string> errors;
   std::string status_code = "ok";
   bool success = true;
+  bool frame_level_enabled = false;
 };
 
 char* duplicate_string(const std::string& value) {
@@ -136,6 +139,18 @@ std::string json_array(const std::vector<Real>& values) {
   return output;
 }
 
+std::string json_array(const std::vector<std::vector<Real>>& values) {
+  std::string output = "[";
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if (index > 0) {
+      output += ",";
+    }
+    output += json_array(values[index]);
+  }
+  output += "]";
+  return output;
+}
+
 std::string render_object(const std::map<std::string, std::string>& fields) {
   std::string output = "{";
   bool first = true;
@@ -154,8 +169,7 @@ std::string render_object(const std::map<std::string, std::string>& fields) {
   return output;
 }
 
-std::string render_aggregation(
-    const std::map<std::string, std::map<std::string, std::string>>& aggregation) {
+std::string render_family_collection(const NestedMap& values) {
   std::string output = "{";
   const std::vector<std::string> family_order = {
       "spectral", "temporal", "rhythm", "tonal", "dynamics", "metadata"};
@@ -169,8 +183,8 @@ std::string render_aggregation(
     output += json_string(family);
     output += ":";
 
-    const auto family_it = aggregation.find(family);
-    if (family_it == aggregation.end()) {
+    const auto family_it = values.find(family);
+    if (family_it == values.end()) {
       output += "{}";
       continue;
     }
@@ -180,6 +194,24 @@ std::string render_aggregation(
 
   output += "}";
   return output;
+}
+
+std::string render_aggregation(const NestedMap& aggregation) {
+  return render_family_collection(aggregation);
+}
+
+std::string render_features(const Payload& payload) {
+  std::map<std::string, std::string> fields;
+  fields.emplace("spectral", "{}");
+  fields.emplace("temporal", "{}");
+  fields.emplace("rhythm", "{}");
+  fields.emplace("tonal", "{}");
+  fields.emplace("dynamics", "{}");
+  fields.emplace("metadata", "{}");
+  fields.emplace(
+      "frame_level",
+      payload.frame_level_enabled ? render_family_collection(payload.frame_level) : "null");
+  return render_object(fields);
 }
 
 std::string render_status(const Payload& payload) {
@@ -199,9 +231,7 @@ std::string render_payload(const std::map<std::string, std::string>& audio_field
   std::map<std::string, std::string> top_level;
   top_level.emplace("aggregation", render_aggregation(payload.aggregation));
   top_level.emplace("audio", render_object(audio_fields));
-  top_level.emplace(
-      "features",
-      "{\"spectral\":{},\"temporal\":{},\"rhythm\":{},\"tonal\":{},\"dynamics\":{},\"metadata\":{},\"frame_level\":null}");
+  top_level.emplace("features", render_features(payload));
   top_level.emplace("status", render_status(payload));
   return render_object(top_level);
 }
@@ -361,6 +391,20 @@ void insert_vector(FamilyMap& family, const std::string& feature, const std::vec
   family[feature] = "{\"mean\":" + json_array(values) + "}";
 }
 
+void insert_frame_scalar(NestedMap& frame_level,
+                         const std::string& family,
+                         const std::string& feature,
+                         const std::vector<Real>& values) {
+  frame_level[family][feature] = json_array(values);
+}
+
+void insert_frame_vector(NestedMap& frame_level,
+                         const std::string& family,
+                         const std::string& feature,
+                         const std::vector<std::vector<Real>>& values) {
+  frame_level[family][feature] = json_array(values);
+}
+
 std::vector<Real> fold_hpcp_to_chroma(const std::vector<Real>& hpcp) {
   if (hpcp.empty()) {
     return {};
@@ -382,6 +426,22 @@ std::vector<Real> fold_hpcp_to_chroma(const std::vector<Real>& hpcp) {
   return chroma;
 }
 
+std::vector<std::vector<Real>> fold_hpcp_frames_to_chroma(
+    const std::vector<std::vector<Real>>& hpcp_frames) {
+  std::vector<std::vector<Real>> chroma_frames;
+  chroma_frames.reserve(hpcp_frames.size());
+
+  for (const auto& frame : hpcp_frames) {
+    std::vector<Real> chroma = fold_hpcp_to_chroma(frame);
+    if (chroma.empty()) {
+      return {};
+    }
+    chroma_frames.push_back(std::move(chroma));
+  }
+
+  return chroma_frames;
+}
+
 double clamp_unit_interval(double value) {
   return std::max(0.0, std::min(1.0, value));
 }
@@ -397,6 +457,8 @@ void add_unavailable_warning(Payload& payload, const std::string& feature) {
 }
 
 void map_supported_feature(const Pool& results,
+                           const Pool& frame_results,
+                           const BackendConfig& config,
                            const std::string& feature,
                            Payload& payload) {
   auto& spectral = payload.aggregation["spectral"];
@@ -405,100 +467,214 @@ void map_supported_feature(const Pool& results,
   auto& tonal = payload.aggregation["tonal"];
   auto& dynamics = payload.aggregation["dynamics"];
   auto& metadata = payload.aggregation["metadata"];
+  auto& frame_level = payload.frame_level;
 
   if (feature == "centroid") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_centroid.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_centroid")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "spread") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_spread.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_spread")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "skewness") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_skewness.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_skewness")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "kurtosis") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_kurtosis.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_kurtosis")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "rolloff") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_rolloff.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_rolloff")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "flux") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_flux.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_flux")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "energy") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_energy.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_energy")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "entropy") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_entropy.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_entropy")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "complexity") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_complexity.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_complexity")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "hfc") {
     if (const auto value = pool_value<Real>(results, "lowlevel.hfc.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames = pool_value<std::vector<Real>>(frame_results, "lowlevel.hfc")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "strong_peak") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_strongpeak.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_strongpeak")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "dissonance") {
     if (const auto value = pool_value<Real>(results, "lowlevel.dissonance.mean")) {
       insert_scalar(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.dissonance")) {
+          insert_frame_scalar(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "mfcc") {
     if (const auto value = pool_value<std::vector<Real>>(results, "lowlevel.mfcc.mean")) {
       insert_vector(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "lowlevel.mfcc")) {
+          insert_frame_vector(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "bark_bands") {
     if (const auto value = pool_value<std::vector<Real>>(results, "lowlevel.barkbands.mean")) {
       insert_vector(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "lowlevel.barkbands")) {
+          insert_frame_vector(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "mel_bands") {
     if (const auto value = pool_value<std::vector<Real>>(results, "lowlevel.melbands.mean")) {
       insert_vector(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "lowlevel.melbands")) {
+          insert_frame_vector(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "erb_bands") {
     if (const auto value = pool_value<std::vector<Real>>(results, "lowlevel.erbbands.mean")) {
       insert_vector(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "lowlevel.erbbands")) {
+          insert_frame_vector(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "gfcc") {
     if (const auto value = pool_value<std::vector<Real>>(results, "lowlevel.gfcc.mean")) {
       insert_vector(spectral, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "lowlevel.gfcc")) {
+          insert_frame_vector(frame_level, "spectral", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "zcr") {
     if (const auto value = pool_value<Real>(results, "lowlevel.zerocrossingrate.mean")) {
       insert_scalar(temporal, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.zerocrossingrate")) {
+          insert_frame_scalar(frame_level, "temporal", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "rms") {
     if (const auto value = pool_value<Real>(results, "lowlevel.spectral_rms.mean")) {
       insert_scalar(temporal, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.spectral_rms")) {
+          insert_frame_scalar(frame_level, "temporal", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "dynamic_range") {
@@ -526,6 +702,12 @@ void map_supported_feature(const Pool& results,
   } else if (feature == "hpcp") {
     if (const auto value = pool_value<std::vector<Real>>(results, "tonal.hpcp.mean")) {
       insert_vector(tonal, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<std::vector<Real>>>(frame_results, "tonal.hpcp")) {
+          insert_frame_vector(frame_level, "tonal", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "chroma") {
@@ -533,6 +715,15 @@ void map_supported_feature(const Pool& results,
       const std::vector<Real> chroma = fold_hpcp_to_chroma(*value);
       if (!chroma.empty()) {
         insert_vector(tonal, feature, chroma);
+        if (config.frame_level) {
+          if (const auto frames =
+                  pool_value<std::vector<std::vector<Real>>>(frame_results, "tonal.hpcp")) {
+            std::vector<std::vector<Real>> chroma_frames = fold_hpcp_frames_to_chroma(*frames);
+            if (!chroma_frames.empty()) {
+              insert_frame_vector(frame_level, "tonal", feature, chroma_frames);
+            }
+          }
+        }
         return;
       }
     }
@@ -554,6 +745,12 @@ void map_supported_feature(const Pool& results,
   } else if (feature == "loudness_ebu") {
     if (const auto value = pool_value<Real>(results, "lowlevel.loudness_ebu128.integrated")) {
       insert_scalar(dynamics, feature, *value);
+      if (config.frame_level) {
+        if (const auto frames =
+                pool_value<std::vector<Real>>(frame_results, "lowlevel.loudness_ebu128.momentary")) {
+          insert_frame_scalar(frame_level, "dynamics", feature, *frames);
+        }
+      }
       return;
     }
   } else if (feature == "dynamic_complexity") {
@@ -599,12 +796,6 @@ std::map<std::string, std::string> build_audio_block(const Pool& results) {
 }
 
 std::string analyze_file_impl(const std::string& path, const BackendConfig& config) {
-  if (config.frame_level) {
-    return error_payload(
-        "unsupported_frame_level",
-        "frame-level output is not implemented in the native Essentia backend yet");
-  }
-
   for (const std::string& statistic : config.statistics) {
     if (statistic != "mean") {
       return error_payload("unsupported_statistic",
@@ -630,8 +821,9 @@ std::string analyze_file_impl(const std::string& path, const BackendConfig& conf
     extractor->compute();
 
     Payload payload;
+    payload.frame_level_enabled = config.frame_level;
     for (const std::string& feature : config.enabled_features) {
-      map_supported_feature(results, feature, payload);
+      map_supported_feature(results, frame_results, config, feature, payload);
     }
 
     delete extractor;

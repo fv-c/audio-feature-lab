@@ -175,6 +175,67 @@ fn bench_skip_logic(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "native-backend")]
+fn bench_native_pipeline_single_file(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline_single_file_native");
+    let fixture = fixture_path("short-stereo-44k.wav");
+    let walker = Walker::new(default_extensions());
+
+    for (label, profile) in [
+        ("minimal", Profile::Minimal),
+        ("default", Profile::Default),
+        ("research", Profile::Research),
+    ] {
+        let config = LabConfig::from_profile(profile).expect("profile config should load");
+        let pipeline = Pipeline::with_native_backend(config, walker.clone())
+            .expect("native pipeline should build");
+
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let record = pipeline
+                    .process_file(&fixture)
+                    .expect("native backend should process fixture");
+                black_box(record)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+#[cfg(feature = "native-backend")]
+fn bench_native_pipeline_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline_batch_native");
+    let corpus = NativeBenchmarkCorpus::new(12);
+    let config = LabConfig::from_profile(Profile::Default).expect("default config should load");
+    let pipeline = Pipeline::with_native_backend(config, Walker::new(default_extensions()))
+        .expect("native pipeline should build");
+
+    group.throughput(Throughput::Elements(corpus.file_count() as u64));
+    group.bench_function("process_scan_default_profile", |b| {
+        b.iter(|| {
+            let mut sink = NullSink;
+            let stats = pipeline
+                .process_scan(corpus.root(), &mut sink)
+                .expect("native scan should process");
+            black_box(stats)
+        });
+    });
+    group.finish();
+}
+
+#[cfg(feature = "native-backend")]
+criterion_group!(
+    benches,
+    bench_walker,
+    bench_pipeline_single_file,
+    bench_pipeline_batch,
+    bench_jsonl,
+    bench_skip_logic,
+    bench_native_pipeline_single_file,
+    bench_native_pipeline_batch
+);
+#[cfg(not(feature = "native-backend"))]
 criterion_group!(
     benches,
     bench_walker,
@@ -283,7 +344,14 @@ fn backend_payload_for_config(config: &LabConfig) -> String {
             "dynamics": Value::Object(features.remove("dynamics").expect("dynamics map")),
             "metadata": Value::Object(features.remove("metadata").expect("metadata map")),
             "frame_level": if config.features.frame_level {
-                json!({"enabled": true})
+                json!({
+                    "spectral": {},
+                    "temporal": {},
+                    "rhythm": {},
+                    "tonal": {},
+                    "dynamics": {},
+                    "metadata": {},
+                })
             } else {
                 Value::Null
             },
@@ -477,6 +545,37 @@ impl BenchmarkCorpus {
 struct FixtureFile {
     _inner: TestDir,
     path: PathBuf,
+}
+
+#[cfg(feature = "native-backend")]
+#[derive(Debug)]
+struct NativeBenchmarkCorpus {
+    root: TestDir,
+    file_count: usize,
+}
+
+#[cfg(feature = "native-backend")]
+impl NativeBenchmarkCorpus {
+    fn new(file_count: usize) -> Self {
+        let root = TestDir::new("bench-native-corpus");
+        let fixture = fixture_path("short-stereo-44k.wav");
+
+        for index in 0..file_count {
+            let parent = root.path().join(format!("set-{}/nested", index % 3));
+            fs::create_dir_all(&parent).expect("native benchmark directory should exist");
+            copy_fixture(&fixture, &parent.join(format!("audio-{index:04}.wav")));
+        }
+
+        Self { root, file_count }
+    }
+
+    fn root(&self) -> &Path {
+        self.root.path()
+    }
+
+    fn file_count(&self) -> usize {
+        self.file_count
+    }
 }
 
 impl FixtureFile {
