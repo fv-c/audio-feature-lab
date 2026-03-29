@@ -81,3 +81,8 @@ The profile vocabulary is broader than the currently implemented native descript
 This is intentional and preferable to renaming or approximating descriptors.
 
 Selecting a different backend such as `mpeg7` is now supported by config and pipeline dispatch, but shipped profile files remain anchored to `essentia` until a real MPEG-7 native implementation exists.
+
+Current MPEG-7 compatibility is intentionally conservative:
+
+- declared exact subset: `centroid`, `spread`
+- features outside that subset are rejected during config validation when `backend.name = "mpeg7"`

@@ -70,7 +70,7 @@ When the Essentia `native-backend` feature is enabled:
 
 The current build script also supports a repository-local fallback at `/tmp/essentia-install` when that path contains a usable Essentia install.
 
-The MPEG-7 path is not yet linked to a native backend. The repository already supports selecting it in config and dispatching to it in Rust, but the current result is an explicit unavailable-backend error rather than a fake implementation.
+The MPEG-7 path is not yet linked to a native backend. The repository already supports selecting it in config, dispatching to it in Rust, and validating against a conservative declared exact subset (`centroid`, `spread`), but the current result is still an explicit unavailable-backend error rather than a fake implementation.
 
 ## Platform Notes
 

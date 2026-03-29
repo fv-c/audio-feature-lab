@@ -445,6 +445,11 @@ where
 fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
     for backend in audio_feature_lab_ffi::known_backends() {
         let status = audio_feature_lab_ffi::backend_status(*backend);
+        let declared_exact = backend
+            .declared_exact_features()
+            .iter()
+            .map(|feature| feature.as_str())
+            .collect::<Vec<_>>();
         let _ = writeln!(stdout, "backend: {}", backend.as_str());
         let _ = writeln!(
             stdout,
@@ -460,6 +465,13 @@ fn handle_backend_info<WOut: Write>(stdout: &mut WOut) -> u8 {
         }
         if let Some(detail) = status.detail {
             let _ = writeln!(stdout, "detail: {detail}");
+        }
+        if !declared_exact.is_empty() {
+            let _ = writeln!(
+                stdout,
+                "declared_exact_features: {}",
+                declared_exact.join(", ")
+            );
         }
         let _ = writeln!(stdout);
     }
@@ -1216,6 +1228,7 @@ mod tests {
         assert!(output.contains("status: unavailable"));
         assert!(output.contains("backend: mpeg7"));
         assert!(output.contains("mpeg7 backend is unavailable"));
+        assert!(output.contains("declared_exact_features: centroid, spread"));
         assert!(stderr.is_empty());
     }
 
@@ -1240,6 +1253,7 @@ mod tests {
         assert!(output.contains("version: essentia"));
         assert!(output.contains("backend: mpeg7"));
         assert!(output.contains("mpeg7 backend is unavailable"));
+        assert!(output.contains("declared_exact_features: centroid, spread"));
         assert!(stderr.is_empty());
     }
 

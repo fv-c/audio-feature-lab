@@ -295,6 +295,25 @@ impl FeatureName {
     }
 }
 
+const MPEG7_DECLARED_EXACT_FEATURES: [FeatureName; 2] =
+    [FeatureName::Centroid, FeatureName::Spread];
+
+impl BackendName {
+    pub fn declared_exact_features(self) -> &'static [FeatureName] {
+        match self {
+            Self::Essentia => &[],
+            Self::Mpeg7 => &MPEG7_DECLARED_EXACT_FEATURES,
+        }
+    }
+
+    pub fn supports_feature(self, feature: FeatureName) -> bool {
+        match self {
+            Self::Essentia => true,
+            Self::Mpeg7 => self.declared_exact_features().contains(&feature),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AggregationStatistic {
     Mean,
@@ -404,6 +423,7 @@ impl LabConfig {
         };
 
         validate_profile_constraints(profile, &features)?;
+        validate_backend_constraints(backend.name, &features)?;
 
         let aggregation = match (
             raw.aggregation,
@@ -629,6 +649,24 @@ fn validate_profile_constraints(
     Ok(())
 }
 
+fn validate_backend_constraints(
+    backend: BackendName,
+    features: &FeaturesConfig,
+) -> Result<(), ConfigError> {
+    if let Some(feature) = features
+        .enabled
+        .iter()
+        .find(|feature| !backend.supports_feature(**feature))
+    {
+        return Err(ConfigError::FeatureUnsupportedByBackend {
+            backend,
+            feature: feature.as_str().to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 fn parse_unique_values<T, ParseFn, NameFn>(
     values: Vec<String>,
     field: &'static str,
@@ -687,6 +725,10 @@ pub enum ConfigError {
         feature: String,
         family: String,
     },
+    FeatureUnsupportedByBackend {
+        backend: BackendName,
+        feature: String,
+    },
     ProfileConstraint {
         profile: Profile,
         message: String,
@@ -719,6 +761,11 @@ impl fmt::Display for ConfigError {
                 f,
                 "feature `{feature}` requires the `{family}` family to be enabled"
             ),
+            Self::FeatureUnsupportedByBackend { backend, feature } => write!(
+                f,
+                "feature `{feature}` is not currently supported by backend `{}`",
+                backend.as_str()
+            ),
             Self::ProfileConstraint { profile, message } => {
                 write!(f, "profile `{}` is invalid: {message}", profile.as_str())
             }
@@ -743,6 +790,7 @@ impl Error for ConfigError {
             | Self::UnknownFeature(_)
             | Self::UnknownAggregationStatistic(_)
             | Self::FeatureOutsideSelectedFamilies { .. }
+            | Self::FeatureUnsupportedByBackend { .. }
             | Self::ProfileConstraint { .. }
             | Self::InvalidWorkers(_) => None,
         }
@@ -876,8 +924,8 @@ profile = "minimal"
 name = "mpeg7"
 
 [features]
-families = ["spectral", "temporal", "dynamics", "metadata"]
-enabled = ["centroid", "zcr", "loudness", "duration"]
+families = ["spectral"]
+enabled = ["centroid", "spread"]
 
 [aggregation]
 statistics = ["mean"]
@@ -886,6 +934,31 @@ statistics = ["mean"]
         .expect("mpeg7 backend should parse");
 
         assert_eq!(config.backend.name, BackendName::Mpeg7);
+    }
+
+    #[test]
+    fn rejects_feature_not_supported_by_mpeg7_backend() {
+        let error = LabConfig::parse_str(
+            r#"
+profile = "minimal"
+
+[backend]
+name = "mpeg7"
+
+[features]
+families = ["spectral", "temporal"]
+enabled = ["centroid", "zcr"]
+
+[aggregation]
+statistics = ["mean"]
+"#,
+        )
+        .expect_err("mpeg7 backend should reject unsupported feature");
+
+        assert_eq!(
+            error.to_string(),
+            "feature `zcr` is not currently supported by backend `mpeg7`"
+        );
     }
 
     #[test]

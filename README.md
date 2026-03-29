@@ -55,7 +55,9 @@ The repository is now backend-aware:
 - shipped configs use `[backend].name = "essentia"`
 - `analysis.backend` and `provenance.backend` record the selected backend
 - `backend-info` reports both the working Essentia path and the current MPEG-7 scaffold state
-- selecting `mpeg7` is already supported at config and pipeline level, but analysis currently fails honestly because no native MPEG-7 implementation is linked yet
+- selecting `mpeg7` is already supported at config and pipeline level
+- `mpeg7` currently declares only a conservative exact feature subset: `centroid`, `spread`
+- analysis with `mpeg7` still fails honestly because no native MPEG-7 implementation is linked yet
 
 Current local build assumptions:
 
@@ -140,6 +142,8 @@ See also:
 - [docs/benchmarking.md](docs/benchmarking.md)
 - [docs/performance.md](docs/performance.md)
 
+The GitHub Actions workflow is currently manual-only via `workflow_dispatch`, so CI runs are explicit rather than automatic on every push or pull request.
+
 ## Licensing
 
 The workspace is licensed under `AGPL-3.0-only`. This is an Essentia-oriented project and does not attempt to isolate or weaken the AGPL implications of using Essentia as the analysis backend.
@@ -156,7 +160,7 @@ See:
 
 - some requested features are still omitted with warnings rather than silently approximated, notably `flatness`, `onset_strength`, `contrast`, `inharmonicity`, and `spectral_peaks`
 - aggregated statistics are currently implemented as `mean` only
-- MPEG-7 is selectable in config and exposed in CLI/backend info, but no native MPEG-7 backend is linked yet
+- MPEG-7 is selectable in config, exposed in CLI/backend info, and has a declared exact subset for validation, but no native MPEG-7 backend is linked yet
 - the `schema` block is present and reserved, but not yet populated with stable inner fields
 - the `file` block currently stores `path`, `relative_path`, and the baseline identity `{ modified_unix_nanos, size_bytes }`; canonical paths and content hashes are still future work
 - the native path has been validated locally on macOS; Linux and Windows still need their own native dependency passes
